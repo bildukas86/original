@@ -1,0 +1,3411 @@
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/serverpackets/ShortCutInit.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/serverpackets/ShortCutInit.java	(revision 342)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/serverpackets/ShortCutInit.java	(revision 343)
+@@ -50,9 +50,13 @@
+ 					writeD(sc.getSharedReuseGroup());
+ 					
+-					if (sc.getSharedReuseGroup() >= 0)
++					if (sc.getSharedReuseGroup() < 0)
++					{
++						writeD(0x00); // Remaining time
++						writeD(0x00); // Cooldown time
++					}
++					else
+ 					{
+ 						final ItemInstance item = _activeChar.getInventory().getItemByObjectId(sc.getId());
+-						final SkillHolder[] skills = item.getEtcItem().getSkills();
+-						if (skills == null)
++						if (item == null || !item.isEtcItem())
+ 						{
+ 							writeD(0x00); // Remaining time
+@@ -61,24 +65,28 @@
+ 						else
+ 						{
+-							for (SkillHolder skillInfo : skills)
++							final SkillHolder[] skills = item.getEtcItem().getSkills();
++							if (skills == null)
+ 							{
+-								final L2Skill itemSkill = skillInfo.getSkill();
+-								if (_activeChar.getReuseTimeStamp().containsKey(itemSkill.getReuseHashCode()))
++								writeD(0x00); // Remaining time
++								writeD(0x00); // Cooldown time
++							}
++							else
++							{
++								for (SkillHolder skillInfo : skills)
+ 								{
+-									writeD((int) (_activeChar.getReuseTimeStamp().get(itemSkill.getReuseHashCode()).getRemaining() / 1000L));
+-									writeD((int) (itemSkill.getReuseDelay() / 1000L));
+-								}
+-								else
+-								{
+-									writeD(0x00); // Remaining time
+-									writeD(0x00); // Cooldown time
++									final L2Skill itemSkill = skillInfo.getSkill();
++									if (_activeChar.getReuseTimeStamp().containsKey(itemSkill.getReuseHashCode()))
++									{
++										writeD((int) (_activeChar.getReuseTimeStamp().get(itemSkill.getReuseHashCode()).getRemaining() / 1000L));
++										writeD((int) (itemSkill.getReuseDelay() / 1000L));
++									}
++									else
++									{
++										writeD(0x00); // Remaining time
++										writeD(0x00); // Cooldown time
++									}
+ 								}
+ 							}
+ 						}
+-					}
+-					else
+-					{
+-						writeD(0x00); // Remaining time
+-						writeD(0x00); // Cooldown time
+ 					}
+ 					
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/serverpackets/NpcHtmlMessage.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/serverpackets/NpcHtmlMessage.java	(revision 342)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/serverpackets/NpcHtmlMessage.java	(revision 343)
+@@ -103,4 +103,9 @@
+ 	}
+ 	
++	public void basicReplace(String pattern, String value)
++	{
++		_html = _html.replaceAll(pattern, value);
++	}
++	
+ 	public void replace(String pattern, String value)
+ 	{
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestCrystallizeItem.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestCrystallizeItem.java	(revision 342)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestCrystallizeItem.java	(revision 343)
+@@ -94,7 +94,4 @@
+ 		}
+ 		
+-		if (!activeChar.getInventory().canManipulateWithItemId(itemToRemove.getItemId()))
+-			return;
+-		
+ 		// Check if the char can crystallize items and return if false;
+ 		boolean canCrystallize = true;
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/Logout.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/Logout.java	(revision 342)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/Logout.java	(revision 343)
+@@ -15,7 +15,5 @@
+ package net.sf.l2j.gameserver.network.clientpackets;
+ 
+-import net.sf.l2j.Config;
+ import net.sf.l2j.gameserver.instancemanager.SevenSignsFestival;
+-import net.sf.l2j.gameserver.model.L2Party;
+ import net.sf.l2j.gameserver.model.actor.instance.L2PcInstance;
+ import net.sf.l2j.gameserver.model.zone.ZoneId;
+@@ -39,15 +37,6 @@
+ 			return;
+ 		
+-		if (player.getActiveEnchantItem() != null)
++		if (player.getActiveEnchantItem() != null || player.isLocked())
+ 		{
+-			player.sendPacket(ActionFailed.STATIC_PACKET);
+-			return;
+-		}
+-		
+-		if (player.isLocked())
+-		{
+-			if (Config.DEBUG)
+-				_log.warning(player.getName() + " tried to logout during class change.");
+-			
+ 			player.sendPacket(ActionFailed.STATIC_PACKET);
+ 			return;
+@@ -61,9 +50,6 @@
+ 		}
+ 		
+-		if (AttackStanceTaskManager.getInstance().isInAttackStance(player) && !player.isGM())
++		if (AttackStanceTaskManager.getInstance().isInAttackStance(player))
+ 		{
+-			if (Config.DEBUG)
+-				_log.fine(player.getName() + " tried to logout while fighting.");
+-			
+ 			player.sendPacket(SystemMessageId.CANT_LOGOUT_WHILE_FIGHTING);
+ 			player.sendPacket(ActionFailed.STATIC_PACKET);
+@@ -71,23 +57,18 @@
+ 		}
+ 		
+-		// Prevent player from logging out if they are a festival participant and it is in progress,
+-		// otherwise notify party members that the player is not longer a participant.
+ 		if (player.isFestivalParticipant())
+ 		{
+ 			if (SevenSignsFestival.getInstance().isFestivalInitialized())
+ 			{
+-				player.sendMessage("You cannot log out while you are a participant in a festival.");
++				player.sendPacket(SystemMessageId.NO_LOGOUT_HERE);
+ 				player.sendPacket(ActionFailed.STATIC_PACKET);
+ 				return;
+ 			}
+-			L2Party playerParty = player.getParty();
+ 			
+-			if (playerParty != null)
++			if (player.isInParty())
+ 				player.getParty().broadcastToPartyMembers(SystemMessage.sendString(player.getName() + " has been removed from the upcoming festival."));
+ 		}
+ 		
+-		// Remove player from Boss Zone
+ 		player.removeFromBossZone();
+-		
+ 		player.logout();
+ 	}
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/Action.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/Action.java	(revision 342)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/Action.java	(revision 343)
+@@ -15,5 +15,4 @@
+ package net.sf.l2j.gameserver.network.clientpackets;
+ 
+-import net.sf.l2j.Config;
+ import net.sf.l2j.gameserver.model.L2Object;
+ import net.sf.l2j.gameserver.model.L2World;
+@@ -24,5 +23,4 @@
+ public final class Action extends L2GameClientPacket
+ {
+-	// cddddc
+ 	private int _objectId;
+ 	@SuppressWarnings("unused")
+@@ -33,9 +31,9 @@
+ 	protected void readImpl()
+ 	{
+-		_objectId = readD(); // Target object Identifier
++		_objectId = readD();
+ 		_originX = readD();
+ 		_originY = readD();
+ 		_originZ = readD();
+-		_actionId = readC(); // Action identifier : 0-Simple click, 1-Shift click
++		_actionId = readC();
+ 	}
+ 	
+@@ -43,8 +41,4 @@
+ 	protected void runImpl()
+ 	{
+-		if (Config.DEBUG)
+-			_log.fine("Action: " + _actionId + ", objectId: " + _objectId);
+-		
+-		// Get the current L2PcInstance of the player
+ 		final L2PcInstance activeChar = getClient().getActiveChar();
+ 		if (activeChar == null)
+@@ -58,6 +52,5 @@
+ 		}
+ 		
+-		// If the player is the requester of a transaction
+-		if (activeChar.getActiveRequester() != null)
++		if (activeChar.getActiveRequester() != null || activeChar.isOutOfControl())
+ 		{
+ 			activeChar.sendPacket(ActionFailed.STATIC_PACKET);
+@@ -65,13 +58,6 @@
+ 		}
+ 		
+-		// If requested object doesn't exist
+ 		final L2Object obj = (activeChar.getTargetId() == _objectId) ? activeChar.getTarget() : L2World.getInstance().findObject(_objectId);
+ 		if (obj == null)
+-		{
+-			activeChar.sendPacket(ActionFailed.STATIC_PACKET);
+-			return;
+-		}
+-		
+-		if (!activeChar.isGM() && activeChar.isOutOfControl())
+ 		{
+ 			activeChar.sendPacket(ActionFailed.STATIC_PACKET);
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestUnEquipItem.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestUnEquipItem.java	(revision 342)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestUnEquipItem.java	(revision 343)
+@@ -15,5 +15,4 @@
+ package net.sf.l2j.gameserver.network.clientpackets;
+ 
+-import net.sf.l2j.Config;
+ import net.sf.l2j.gameserver.model.actor.instance.L2PcInstance;
+ import net.sf.l2j.gameserver.model.item.instance.ItemInstance;
+@@ -43,7 +42,4 @@
+ 			return;
+ 		
+-		if (Config.DEBUG)
+-			_log.fine(activeChar.getName() + "requests to unequip slot: " + _slot);
+-		
+ 		ItemInstance item = activeChar.getInventory().getPaperdollItemByL2ItemId(_slot);
+ 		if (item == null)
+@@ -62,7 +58,4 @@
+ 		
+ 		if (activeChar.isCastingNow() || activeChar.isCastingSimultaneouslyNow())
+-			return;
+-		
+-		if (!activeChar.getInventory().canManipulateWithItemId(item.getItemId()))
+ 			return;
+ 		
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestAutoSoulShot.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestAutoSoulShot.java	(revision 342)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestAutoSoulShot.java	(revision 343)
+@@ -48,10 +48,4 @@
+ 			if (_type == 1)
+ 			{
+-				if (!activeChar.getInventory().canManipulateWithItemId(item.getItemId()))
+-				{
+-					activeChar.sendPacket(SystemMessageId.CANNOT_USE_SOULSHOTS);
+-					return;
+-				}
+-				
+ 				// Fishingshots are not automatic on retail
+ 				if (_itemId < 6535 || _itemId > 6540)
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestDestroyItem.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestDestroyItem.java	(revision 342)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestDestroyItem.java	(revision 343)
+@@ -49,13 +49,4 @@
+ 			return;
+ 		
+-		int count = _count;
+-		if (count <= 0)
+-		{
+-			if (count < 0)
+-				Util.handleIllegalPlayerAction(activeChar, "[RequestDestroyItem] " + activeChar.getName() + " of account " + activeChar.getAccountName() + " tried to destroy item with oid " + _objectId + " but has count < 0.", Config.DEFAULT_PUNISH);
+-			
+-			return;
+-		}
+-		
+ 		if (activeChar.isProcessingTransaction() || activeChar.isInStoreMode())
+ 		{
+@@ -67,4 +58,16 @@
+ 		if (itemToRemove == null)
+ 			return;
++		
++		if (_count < 1 || _count > itemToRemove.getCount())
++		{
++			activeChar.sendPacket(SystemMessageId.CANNOT_DESTROY_NUMBER_INCORRECT);
++			return;
++		}
++		
++		if (!itemToRemove.isStackable() && _count > 1)
++		{
++			Util.handleIllegalPlayerAction(activeChar, "[RequestDestroyItem] " + activeChar.getName() + " of account " + activeChar.getAccountName() + " tried to destroy a non-stackable item with oid " + _objectId + " but has count > 1.", Config.DEFAULT_PUNISH);
++			return;
++		}
+ 		
+ 		final int itemId = itemToRemove.getItemId();
+@@ -99,20 +102,5 @@
+ 		}
+ 		
+-		if (!itemToRemove.isStackable() && count > 1)
+-		{
+-			Util.handleIllegalPlayerAction(activeChar, "[RequestDestroyItem] " + activeChar.getName() + " of account " + activeChar.getAccountName() + " tried to destroy a non-stackable item with oid " + _objectId + " but has count > 1.", Config.DEFAULT_PUNISH);
+-			return;
+-		}
+-		
+-		if (!activeChar.getInventory().canManipulateWithItemId(itemId))
+-		{
+-			activeChar.sendPacket(SystemMessageId.CANNOT_USE_ON_YOURSELF);
+-			return;
+-		}
+-		
+-		if (count > itemToRemove.getCount())
+-			count = itemToRemove.getCount();
+-		
+-		if (itemToRemove.isEquipped() && (!itemToRemove.isStackable() || (itemToRemove.isStackable() && count >= itemToRemove.getCount())))
++		if (itemToRemove.isEquipped() && (!itemToRemove.isStackable() || (itemToRemove.isStackable() && _count >= itemToRemove.getCount())))
+ 		{
+ 			ItemInstance[] unequipped = activeChar.getInventory().unEquipItemInSlotAndRecord(itemToRemove.getLocationSlot());
+@@ -151,5 +139,5 @@
+ 		}
+ 		
+-		ItemInstance removedItem = activeChar.getInventory().destroyItem("Destroy", _objectId, count, activeChar, null);
++		ItemInstance removedItem = activeChar.getInventory().destroyItem("Destroy", _objectId, _count, activeChar, null);
+ 		if (removedItem == null)
+ 			return;
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestRestart.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestRestart.java	(revision 342)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestRestart.java	(revision 343)
+@@ -16,5 +16,4 @@
+ 
+ import net.sf.l2j.gameserver.instancemanager.SevenSignsFestival;
+-import net.sf.l2j.gameserver.model.L2Party;
+ import net.sf.l2j.gameserver.model.actor.instance.L2PcInstance;
+ import net.sf.l2j.gameserver.model.zone.ZoneId;
+@@ -41,11 +40,5 @@
+ 			return;
+ 		
+-		if (player.getActiveEnchantItem() != null)
+-		{
+-			sendPacket(RestartResponse.valueOf(false));
+-			return;
+-		}
+-		
+-		if (player.isLocked())
++		if (player.getActiveEnchantItem() != null || player.isLocked() || player.isInStoreMode())
+ 		{
+ 			sendPacket(RestartResponse.valueOf(false));
+@@ -60,11 +53,5 @@
+ 		}
+ 		
+-		if (player.isInStoreMode())
+-		{
+-			sendPacket(RestartResponse.valueOf(false));
+-			return;
+-		}
+-		
+-		if (AttackStanceTaskManager.getInstance().isInAttackStance(player) && !player.isGM())
++		if (AttackStanceTaskManager.getInstance().isInAttackStance(player))
+ 		{
+ 			player.sendPacket(SystemMessageId.CANT_RESTART_WHILE_FIGHTING);
+@@ -73,20 +60,17 @@
+ 		}
+ 		
+-		// Prevent player from restarting if they are a festival participant and it is in progress,
+-		// otherwise notify party members that the player is not longer a participant.
+ 		if (player.isFestivalParticipant())
+ 		{
+ 			if (SevenSignsFestival.getInstance().isFestivalInitialized())
+ 			{
++				player.sendPacket(SystemMessageId.NO_RESTART_HERE);
+ 				sendPacket(RestartResponse.valueOf(false));
+ 				return;
+ 			}
+ 			
+-			final L2Party playerParty = player.getParty();
+-			if (playerParty != null)
++			if (player.isInParty())
+ 				player.getParty().broadcastToPartyMembers(SystemMessage.sendString(player.getName() + " has been removed from the upcoming festival."));
+ 		}
+ 		
+-		// Remove player from Boss Zone
+ 		player.removeFromBossZone();
+ 		
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestBuyItem.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestBuyItem.java	(revision 342)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestBuyItem.java	(revision 343)
+@@ -70,5 +70,4 @@
+ 			return;
+ 		
+-		// Alt game - Karma punishment
+ 		if (!Config.KARMA_PLAYER_CAN_SHOP && player.getKarma() > 0)
+ 			return;
+@@ -165,5 +164,5 @@
+ 		}
+ 		
+-		if (!player.isGM() && (weight > Integer.MAX_VALUE || weight < 0 || !player.getInventory().validateWeight(weight)))
++		if (weight > Integer.MAX_VALUE || weight < 0 || !player.getInventory().validateWeight(weight))
+ 		{
+ 			sendPacket(SystemMessage.getSystemMessage(SystemMessageId.WEIGHT_LIMIT_EXCEEDED));
+@@ -171,5 +170,5 @@
+ 		}
+ 		
+-		if (!player.isGM() && (slots > Integer.MAX_VALUE || slots < 0 || !player.getInventory().validateCapacity(slots)))
++		if (slots > Integer.MAX_VALUE || slots < 0 || !player.getInventory().validateCapacity(slots))
+ 		{
+ 			sendPacket(SystemMessage.getSystemMessage(SystemMessageId.SLOTS_FULL));
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/UseItem.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/UseItem.java	(revision 342)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/UseItem.java	(revision 343)
+@@ -175,10 +175,4 @@
+ 		}
+ 		
+-		if (!activeChar.getInventory().canManipulateWithItemId(item.getItemId()))
+-			return;
+-		
+-		if (Config.DEBUG)
+-			_log.finest(activeChar.getName() + ": use item " + _objectId);
+-		
+ 		if (!item.isEquipped())
+ 		{
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/instance/L2VillageMasterInstance.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/instance/L2VillageMasterInstance.java	(revision 342)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/instance/L2VillageMasterInstance.java	(revision 343)
+@@ -215,5 +215,5 @@
+ 					
+ 					// Subclasses may not be added while you are over your weight limit.
+-					if (!player.isInventoryUnder80(true) || player.getWeightPenalty() > 0)
++					if (player.getInventoryLimit() * 0.8 <= player.getInventory().getSize() || player.getWeightPenalty() > 0)
+ 					{
+ 						player.sendPacket(SystemMessageId.NOT_SUBCLASS_WHILE_OVERWEIGHT);
+@@ -253,5 +253,5 @@
+ 					
+ 					// Subclasses may not be changed while a you are over your weight limit.
+-					if (!player.isInventoryUnder80(true) || player.getWeightPenalty() > 0)
++					if (player.getInventoryLimit() * 0.8 <= player.getInventory().getSize() || player.getWeightPenalty() > 0)
+ 					{
+ 						player.sendPacket(SystemMessageId.NOT_SUBCLASS_WHILE_OVERWEIGHT);
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/instance/L2PcInstance.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/instance/L2PcInstance.java	(revision 342)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/instance/L2PcInstance.java	(revision 343)
+@@ -2603,9 +2603,6 @@
+ 			sendPacket(su);
+ 			
+-			// If over capacity, drop the item
+-			if (!_inventory.validateCapacity(0, item.isQuestItem()) && newitem.isDropable() && (!newitem.isStackable() || newitem.getLastChange() != ItemInstance.MODIFIED))
+-				dropItem("InvDrop", newitem, null, true, true);
+ 			// Cursed Weapon
+-			else if (CursedWeaponsManager.getInstance().isCursed(newitem.getItemId()))
++			if (CursedWeaponsManager.getInstance().isCursed(newitem.getItemId()))
+ 				CursedWeaponsManager.getInstance().activate(this, newitem);
+ 			// If you pickup arrows and a bow is equipped, try to equip them if no arrows is currently equipped.
+@@ -2669,9 +2666,6 @@
+ 				final ItemInstance createdItem = _inventory.addItem(process, itemId, count, this, reference);
+ 				
+-				// If over capacity, drop the item
+-				if (!_inventory.validateCapacity(0, item.isQuestItem()) && createdItem.isDropable() && (!createdItem.isStackable() || createdItem.getLastChange() != ItemInstance.MODIFIED))
+-					dropItem("InvDrop", createdItem, null, true);
+ 				// Cursed Weapon
+-				else if (CursedWeaponsManager.getInstance().isCursed(createdItem.getItemId()))
++				if (CursedWeaponsManager.getInstance().isCursed(createdItem.getItemId()))
+ 					CursedWeaponsManager.getInstance().activate(this, createdItem);
+ 				// If you pickup arrows and a bow is equipped, try to equip them if no arrows is currently equipped.
+@@ -3542,5 +3536,4 @@
+ 		synchronized (target)
+ 		{
+-			// Check if the target to pick up is visible
+ 			if (!target.isVisible())
+ 				return;
+@@ -3552,4 +3545,10 @@
+ 			{
+ 				sendPacket(SystemMessage.getSystemMessage(SystemMessageId.FAILED_TO_PICKUP_S1).addItemName(target.getItemId()));
++				return;
++			}
++			
++			if (!_inventory.validateWeight(target.getCount() * target.getItem().getWeight()))
++			{
++				sendPacket(SystemMessage.getSystemMessage(SystemMessageId.WEIGHT_LIMIT_EXCEEDED));
+ 				return;
+ 			}
+@@ -10569,24 +10568,4 @@
+ 	}
+ 	
+-	/**
+-	 * Test if player inventory is under 80% capaity
+-	 * @param includeQuestInv check also quest inventory
+-	 * @return
+-	 */
+-	public boolean isInventoryUnder80(boolean includeQuestInv)
+-	{
+-		if (getInventory().getSize(false) <= (getInventoryLimit() * 0.8))
+-		{
+-			if (includeQuestInv)
+-			{
+-				if (getInventory().getSize(true) <= (getQuestInventoryLimit() * 0.8))
+-					return true;
+-			}
+-			else
+-				return true;
+-		}
+-		return false;
+-	}
+-	
+ 	@Override
+ 	public void broadcastRelationsChanges()
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/L2Attackable.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/L2Attackable.java	(revision 342)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/L2Attackable.java	(revision 343)
+@@ -600,5 +600,5 @@
+ 					exp *= 1 - penalty;
+ 					
+-					if (isOverhit() && getOverhitAttacker().getActingPlayer() != null && attacker == getOverhitAttacker().getActingPlayer())
++					if (isOverhit() && _overhitAttacker != null && _overhitAttacker.getActingPlayer() != null && attacker == _overhitAttacker.getActingPlayer())
+ 					{
+ 						attacker.sendPacket(SystemMessageId.OVER_HIT);
+@@ -682,5 +682,5 @@
+ 				// Check for an over-hit enabled strike
+ 				// (When in party, the over-hit exp bonus is given to the whole party and splitted proportionally through the party members)
+-				if (isOverhit() && getOverhitAttacker().getActingPlayer() != null && attacker == getOverhitAttacker().getActingPlayer())
++				if (isOverhit() && _overhitAttacker != null && _overhitAttacker.getActingPlayer() != null && attacker == _overhitAttacker.getActingPlayer())
+ 				{
+ 					attacker.sendPacket(SystemMessageId.OVER_HIT);
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/L2Npc.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/L2Npc.java	(revision 342)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/L2Npc.java	(revision 343)
+@@ -890,5 +890,5 @@
+ 		}
+ 		
+-		if (quest.isRealQuest() && (player.getWeightPenalty() >= 3 || !player.isInventoryUnder80(true)))
++		if (quest.isRealQuest() && (player.getWeightPenalty() >= 3 || player.getInventoryLimit() * 0.8 <= player.getInventory().getSize()))
+ 		{
+ 			player.sendPacket(SystemMessageId.INVENTORY_LESS_THAN_80_PERCENT);
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/itemcontainer/PcInventory.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/itemcontainer/PcInventory.java	(revision 342)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/itemcontainer/PcInventory.java	(revision 343)
+@@ -23,5 +23,4 @@
+ 
+ import net.sf.l2j.L2DatabaseFactory;
+-import net.sf.l2j.gameserver.datatables.ItemTable;
+ import net.sf.l2j.gameserver.model.L2Object;
+ import net.sf.l2j.gameserver.model.TradeList;
+@@ -30,5 +29,4 @@
+ import net.sf.l2j.gameserver.model.item.instance.ItemInstance;
+ import net.sf.l2j.gameserver.model.item.instance.ItemInstance.ItemLocation;
+-import net.sf.l2j.gameserver.model.item.kind.Item;
+ import net.sf.l2j.gameserver.model.item.type.EtcItemType;
+ import net.sf.l2j.gameserver.model.itemcontainer.listeners.ArmorSetListener;
+@@ -36,8 +34,6 @@
+ import net.sf.l2j.gameserver.model.itemcontainer.listeners.ItemPassiveSkillsListener;
+ import net.sf.l2j.gameserver.network.serverpackets.InventoryUpdate;
+-import net.sf.l2j.gameserver.network.serverpackets.ItemList;
+ import net.sf.l2j.gameserver.network.serverpackets.StatusUpdate;
+ import net.sf.l2j.gameserver.taskmanager.ShadowItemTaskManager;
+-import net.sf.l2j.gameserver.util.Util;
+ 
+ public class PcInventory extends Inventory
+@@ -49,17 +45,4 @@
+ 	private ItemInstance _adena;
+ 	private ItemInstance _ancientAdena;
+-	
+-	private int[] _blockItems = null;
+-	
+-	private int _questSlots;
+-	/**
+-	 * Block modes:
+-	 * <UL>
+-	 * <LI>-1 - no block
+-	 * <LI>0 - block items from _invItems, allow usage of other items
+-	 * <LI>1 - allow usage of items from _invItems, block other items
+-	 * </UL>
+-	 */
+-	private int _blockMode = -1;
+ 	
+ 	public PcInventory(L2PcInstance owner)
+@@ -267,5 +250,5 @@
+ 		for (ItemInstance item : _items)
+ 		{
+-			if (item != null && item.isAvailable(getOwner(), allowAdena, allowNonTradeable) && canManipulateWithItemId(item.getItemId()))
++			if (item != null && item.isAvailable(getOwner(), allowAdena, allowNonTradeable))
+ 				list.add(item);
+ 		}
+@@ -622,17 +605,5 @@
+ 			_ancientAdena = null;
+ 		
+-		synchronized (_items)
+-		{
+-			if (item.isQuestItem())
+-			{
+-				_questSlots--;
+-				if (_questSlots < 0)
+-				{
+-					_questSlots = 0;
+-					_log.warning(this + ": QuestInventory size < 0!");
+-				}
+-			}
+-			return super.removeItem(item);
+-		}
++		return super.removeItem(item);
+ 	}
+ 	
+@@ -692,16 +663,16 @@
+ 			slots++;
+ 		
+-		return validateCapacity(slots, item.isQuestItem());
+-	}
+-	
++		return validateCapacity(slots);
++	}
++		
+ 	public boolean validateCapacityByItemId(int ItemId)
+ 	{
+ 		int slots = 0;
+-		Item item = ItemTable.getInstance().getTemplate(ItemId);
++			
+ 		ItemInstance invItem = getItemByItemId(ItemId);
+ 		if (!(invItem != null && invItem.isStackable()))
+ 			slots++;
+ 		
+-		return validateCapacity(slots, item.isQuestItem());
++		return validateCapacity(slots);
+ 	}
+ 	
+@@ -709,13 +680,5 @@
+ 	public boolean validateCapacity(int slots)
+ 	{
+-		return validateCapacity(slots, false);
+-	}
+-	
+-	public boolean validateCapacity(int slots, boolean questItem)
+-	{
+-		if (!questItem)
+-			return (_items.size() - _questSlots + slots <= _owner.getInventoryLimit());
+-		
+-		return _questSlots + slots <= L2PcInstance.getQuestInventoryLimit();
++		return (_items.size() + slots <= _owner.getInventoryLimit());
+ 	}
+ 	
+@@ -726,88 +689,4 @@
+ 	}
+ 	
+-	/**
+-	 * Set inventory block for specified IDs<br>
+-	 * array reference is used for {@link PcInventory#_blockItems}
+-	 * @param items array of Ids to block/allow
+-	 * @param mode blocking mode {@link PcInventory#_blockMode}
+-	 */
+-	public void setInventoryBlock(int[] items, int mode)
+-	{
+-		_blockMode = mode;
+-		_blockItems = items;
+-		
+-		_owner.sendPacket(new ItemList(_owner, false));
+-	}
+-	
+-	/**
+-	 * Unblock blocked itemIds
+-	 */
+-	public void unblock()
+-	{
+-		_blockMode = -1;
+-		_blockItems = null;
+-		
+-		_owner.sendPacket(new ItemList(_owner, false));
+-	}
+-	
+-	/**
+-	 * Check if player inventory is in block mode.
+-	 * @return true if some itemIds blocked
+-	 */
+-	public boolean hasInventoryBlock()
+-	{
+-		return (_blockMode > -1 && _blockItems != null && _blockItems.length > 0);
+-	}
+-	
+-	/**
+-	 * Return block mode
+-	 * @return int {@link PcInventory#_blockMode}
+-	 */
+-	public int getBlockMode()
+-	{
+-		return _blockMode;
+-	}
+-	
+-	/**
+-	 * Return TIntArrayList with blocked item ids
+-	 * @return TIntArrayList
+-	 */
+-	public int[] getBlockItems()
+-	{
+-		return _blockItems;
+-	}
+-	
+-	/**
+-	 * Check if player can use item by itemid
+-	 * @param itemId int
+-	 * @return true if can use
+-	 */
+-	public boolean canManipulateWithItemId(int itemId)
+-	{
+-		if ((_blockMode == 0 && Util.contains(_blockItems, itemId)) || (_blockMode == 1 && !Util.contains(_blockItems, itemId)))
+-			return false;
+-		return true;
+-	}
+-	
+-	@Override
+-	protected void addItem(ItemInstance item)
+-	{
+-		synchronized (_items)
+-		{
+-			if (item.isQuestItem())
+-				_questSlots++;
+-			
+-			super.addItem(item);
+-		}
+-	}
+-	
+-	public int getSize(boolean quest)
+-	{
+-		if (quest)
+-			return _questSlots;
+-		
+-		return getSize() - _questSlots;
+-	}
+-	
+ 	@Override
+ 	public String toString()
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/itemcontainer/ItemContainer.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/itemcontainer/ItemContainer.java	(revision 342)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/itemcontainer/ItemContainer.java	(revision 343)
+@@ -125,19 +125,4 @@
+ 	
+ 	/**
+-	 * @param itemId : the itemId to check.
+-	 * @param itemToIgnore : used during a loop, to avoid returning the same item.
+-	 * @return the item by using its itemId, or null if not found in inventory
+-	 */
+-	public ItemInstance getItemByItemId(int itemId, ItemInstance itemToIgnore)
+-	{
+-		for (ItemInstance item : _items)
+-		{
+-			if (item.getItemId() == itemId && !item.equals(itemToIgnore))
+-				return item;
+-		}
+-		return null;
+-	}
+-	
+-	/**
+ 	 * @param objectId : the objectId to check.
+ 	 * @return the item by using its objectId, or null if not found in inventory
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/olympiad/OlympiadManager.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/olympiad/OlympiadManager.java	(revision 342)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/olympiad/OlympiadManager.java	(revision 343)
+@@ -270,5 +270,5 @@
+ 		}
+ 		
+-		if (!player.isInventoryUnder80(true))
++		if (player.getInventoryLimit() * 0.8 <= player.getInventory().getSize())
+ 		{
+ 			player.sendPacket(SystemMessageId.SINCE_80_PERCENT_OR_MORE_OF_YOUR_INVENTORY_SLOTS_ARE_FULL_YOU_CANNOT_PARTICIPATE_IN_THE_OLYMPIAD);
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/olympiad/AbstractOlympiadGame.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/olympiad/AbstractOlympiadGame.java	(revision 342)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/olympiad/AbstractOlympiadGame.java	(revision 343)
+@@ -128,5 +128,5 @@
+ 		}
+ 		
+-		if (!player.isInventoryUnder80(true))
++		if (player.getInventoryLimit() * 0.8 <= player.getInventory().getSize())
+ 		{
+ 			player.sendPacket(SystemMessageId.SINCE_80_PERCENT_OR_MORE_OF_YOUR_INVENTORY_SLOTS_ARE_FULL_YOU_CANNOT_PARTICIPATE_IN_THE_OLYMPIAD);
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/cache/CrestCache.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/cache/CrestCache.java	(revision 342)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/cache/CrestCache.java	(revision 343)
+@@ -123,5 +123,5 @@
+ 		
+ 		// crest data is not required type, return
+-		if (data.length != type._size)
++		if (data == null || data.length != type._size)
+ 			return;
+ 		
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/handler/admincommandhandlers/AdminPForge.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/handler/admincommandhandlers/AdminPForge.java	(revision 342)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/handler/admincommandhandlers/AdminPForge.java	(revision 343)
+@@ -174,5 +174,5 @@
+ 		for (int i = 0; i < format.length(); i++)
+ 			replyMSG.append(" \\$v" + i);
+-		adminReply.replace("%send%", replyMSG.toString());
++		adminReply.basicReplace("%send%", replyMSG.toString());
+ 		activeChar.sendPacket(adminReply);
+ 	}
+Index: /trunk/aCis_datapack/data/scripts.cfg
+===================================================================
+--- /trunk/aCis_datapack/data/scripts.cfg	(revision 342)
++++ /trunk/aCis_datapack/data/scripts.cfg	(revision 343)
+@@ -163,5 +163,5 @@
+ quests/Q218_TestimonyOfLife/Q218_TestimonyOfLife.java
+ quests/Q219_TestimonyOfFate/Q219_TestimonyOfFate.java
+-#quests/Q220_TestimonyOfGlory/Q220_TestimonyOfGlory.java
++quests/Q220_TestimonyOfGlory/Q220_TestimonyOfGlory.java
+ #quests/Q221_TestimonyOfProsperity/Q221_TestimonyOfProsperity.java
+ quests/Q222_TestOfTheDuelist/Q222_TestOfTheDuelist.java
+@@ -169,5 +169,5 @@
+ quests/Q224_TestOfSagittarius/Q224_TestOfSagittarius.java
+ quests/Q225_TestOfTheSearcher/Q225_TestOfTheSearcher.java
+-#quests/Q226_TestOfTheHealer/Q226_TestOfTheHealer.java
++quests/Q226_TestOfTheHealer/Q226_TestOfTheHealer.java
+ #quests/Q227_TestOfTheReformer/Q227_TestOfTheReformer.java
+ quests/Q228_TestOfMagus/Q228_TestOfMagus.java
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30661-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30661-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30661-01.htm	(revision 343)
+@@ -0,0 +1,6 @@
++<html><body>Mysterious Dark Elf:<br>
++I carry out the will of Shilen. Those who dare to stand in my way will be brought down with no mercy!<br>
++I knew that you were tracking me... I suppose you are in the middle of the examination. So, does your future depend on capturing me? Ha! Who do I have to thank for this honor?<br>
++Sorry to say, but this is a matter of life and death for me as well. I won't make things too easy for you.<br>
++Soldiers, kill this man!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-01.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Priest Bandellos:<br>
++The <font color="LEVEL">Mark of the Healer</font> is reserved for those who understand the healing and purifying power of light. These properties of light transcend all tribal distinctions. One day you will be tested to determine if you are worthy to receive this mark. You are not ready for this test yet. Don't be discouraged, your time will come. Come back to see me when you have more experience, and we will discuss the Mark of the Healer...<br>
++(Quest available only for Cleric, Oracle, or Elven Knights above level 39.)
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30661-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30661-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30661-02.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Mysterious Dark Elf:<br>
++Too bad! It doesn't make any difference in performing Shilen's will!<br>
++Soldiers, kill that man!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-02.htm	(revision 343)
+@@ -0,0 +1,5 @@
++<html><body>Priest Bandellos:<br>
++It is not the will of Einhasad that you take the <font color="LEVEL">Test of the Healer</font> right now. A more suitable test awaits you elsewhere...<br>
++May the grace of moonlight shine upon your path...<br>
++(Quest available only for Cleric, Elven Oracle, Human Knight, Paladin, or Elven Knights above level 39.)
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30661-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30661-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30661-03.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Mysterious Dark Elf:<br>
++Oh... It's rather surprising that you have actually managed to follow me up until now. I'm sorry to say but I can't let you live any longer. If you are still alive in five minutes, I shall give you the title of Shillien Elder.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30663-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30663-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30663-01.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Slein Shining Blade:<br>
++I am Slein, envoy of Daurin! I have been following a <font color="LEVEL">Dark Elf stranger</font> around here. Come and help me catch him!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-03.htm	(revision 343)
+@@ -0,0 +1,5 @@
++<html><body>Priest Bandellos:<br>
++The <font color="LEVEL">Mark of the Healer</font> is reserved for those who understand the healing and purifying power of light. These properties of light transcend all tribal distinctions. <br>
++If you wish to take the challenge, I have but one favor I must ask...<br>
++<a action="bypass -h Quest Q226_TestOfTheHealer 30473-04a.htm">"I will challenge the Test of the Healer"</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30661-04.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30661-04.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30661-04.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Mysterious Dark Elf:<br>
++Urrgh... The magic that held the <font color="LEVEL">saint</font> contained is undone! How dare you disrupt the holy ceremony of Shilen...! I will never forgive you!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30663-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30663-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30663-02.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Slein Shining Blade:<br>
++Damn, those Dark Elves are slippery! He is returning to his comrades! We must prepare for an onslaught!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-04.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-04.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-04.htm	(revision 343)
+@@ -0,0 +1,6 @@
++<html><body>Priest Bandellos:<br>
++There is a very old prophecy that says a day will come when all the people of this world will suffer under an overwhelming dark energy. In those days a girl will be born, a perfect representative of Einhasad, sent to purify this wicked world.<br>
++And now a child is born, a <font color="LEVEL">girl who claims to be the One</font>. Whether she is authentic or not, the church cannot ignore this.<br>
++You must examine this matter carefully. This shall be your test.<br>
++You must go and see <font color="LEVEL">Perrin at the Gludin Harbor</font>. He is said to be protecting the holy child.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30663-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30663-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30663-03.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Slein Shining Blade:<br>
++My colleagues have located the <font color="LEVEL">Saintess</font> that you were looking for! She is currently in a <font color="LEVEL">tent near the Initiation Altar of the Dark Elves</font>! She will surely have an explanation for all of this...
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30665-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30665-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30665-01.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Saint Kristina:<br>
++Thank you! Finally! I can move around!<br>
++<a action="bypass -h Quest Q226_TestOfTheHealer 30665-02.htm">"Please visit Master Sorius with me."</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-05.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-05.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-05.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Priest Bandellos:<br>
++Have you any news of the child? I wish I could tell you to take your time, but this is of the utmost urgency.<br>
++If you don't have the time, you may give up, someone else will take up the cause...
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30665-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30665-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30665-02.htm	(revision 343)
+@@ -0,0 +1,6 @@
++<html><body>Saint Kristina:<br>
++I overheard the Dark Elf who kidnapped me say that the goddess is waking up, although I do not know what that means.<br>
++But I know one thing for sure, it was my destiny to be kidnapped and brought here...<br>
++I will stay here. The time has not yet come for my return to the shrine. It is now my duty to spread the word of light in this forest of darkness. The Dark Elves deserve to know the truth of Einhasad. To survive the Chaotic Chronicle we must all join together.<br>
++Please take this letter to <font color="LEVEL">Master Sorius</font>.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-06.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-06.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-06.htm	(revision 343)
+@@ -0,0 +1,5 @@
++<html><body>Priest Bandellos:<br>
++I don't like the way this is looking. I must send a guard to protect the child immediately. And I must report this to the High Priest at once!<br>
++Master Sorius has told me of your great contribution to this effort. He was very complimentary of your skills.<br>
++You have certainly earned this <font color="LEVEL">Mark of the Healer</font>. Thank you again, I hope this helps you on your journey.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30665-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30665-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30665-03.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Saint Kristina:<br>
++Please, you must help me! You were sent by Priest Bandellos, weren't you? The Dark Elf who kidnapped me cast an evil spell and I can't move at all! I beg you. Please set me free!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30659-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30659-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30659-01.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Orphan Girl:<br>
++Kristina? What a wonderfully strange person she is! Just the other day I sprained my ankle while trying to catch a frog. It hurt so bad that I started to cry, and then Kristina came and touched my ankle and it stopped hurting! It was a miracle!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-07.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-07.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-07.htm	(revision 343)
+@@ -0,0 +1,7 @@
++<html><body>Priest Bandellos:<br>
++I don't like the way this is looking. I must send a guard to protect the child immediately. And I must report this to the High Priest at once!<br>
++Master Sorius has told me of your great contribution to this effort. He was very complimentary of your skills.<br>
++There may come a day when I shall need your help again... I hope you keep your skills sharp for that day.<br>
++Hmmmm, what is that you're holding in your hands...It looks familiar... It reminds me of something that was lost from the church recently. Do you mind if I have a look at it?<br>
++<a action="bypass -h Quest Q226_TestOfTheHealer 30473-08.htm">Show the Golden Statue</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30665-04.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30665-04.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30665-04.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Saint Kristina:<br>
++Did you give my letter to Master Sorius? Please take it to him right away! I implore you!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30659-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30659-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30659-02.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Orphan Girl:<br>
++Father told us that he hated boys! He said that he had the most beautiful girls in the whole world!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-08.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-08.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-08.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Priest Bandellos:<br>
++Oh my, this is it! This is the holy statue that was stolen from us by bandits when we were on our way to the Gludio shrine! I hate to ask, but could you possibly return this relic to our shrine? We have been lost without it.<br>
++<a action="bypass -h Quest Q226_TestOfTheHealer 30473-09.htm">Hand over the Golden Statue</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30659-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30659-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30659-03.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Orphan Girl:<br>
++The saint? The prophecy? I've never heard of them...I am so hungry.. ...and cold... I just want some nice hot potatoes. Sob...
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-09.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-09.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-09.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Priest Bandellos:<br>
++Thank you. Now take this <font color="LEVEL">Mark of the Healer</font>. May the blessings of Einhasad be upon you... We will never forget the help that you have given to us and to our shrine.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30659-04.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30659-04.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30659-04.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Orphan Girl:<br>
++Please help me, Warrior! Oh, Kristina... Poor Kristina... Strange people came and took her away... I was so frightened... I watched from behind a tree, trembling in fear. Sob... Poor Kristina...
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30659-05.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30659-05.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30659-05.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Orphan Girl:<br>
++Please help me, Warrior! Kristina was kidnapped by the lizardmen! They were being bossed around by some Dark Elves...!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/Q226_TestOfTheHealer.java
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/Q226_TestOfTheHealer.java	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/Q226_TestOfTheHealer.java	(revision 343)
+@@ -0,0 +1,487 @@
++/*
++ * This program is free software: you can redistribute it and/or modify it under
++ * the terms of the GNU General Public License as published by the Free Software
++ * Foundation, either version 3 of the License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
++ * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License along with
++ * this program. If not, see <http://www.gnu.org/licenses/>.
++ */
++package quests.Q226_TestOfTheHealer;
++
++import net.sf.l2j.gameserver.model.actor.L2Npc;
++import net.sf.l2j.gameserver.model.actor.instance.L2PcInstance;
++import net.sf.l2j.gameserver.model.base.ClassId;
++import net.sf.l2j.gameserver.model.quest.Quest;
++import net.sf.l2j.gameserver.model.quest.QuestState;
++import net.sf.l2j.gameserver.network.serverpackets.SocialAction;
++import net.sf.l2j.util.Rnd;
++
++public class Q226_TestOfTheHealer extends Quest
++{
++	private static final String qn = "Q226_TestOfTheHealer";
++	
++	// Items
++	private static final int REPORT_OF_PERRIN = 2810;
++	private static final int KRISTINA_LETTER = 2811;
++	private static final int PICTURE_OF_WINDY = 2812;
++	private static final int GOLDEN_STATUE = 2813;
++	private static final int WINDY_PEBBLES = 2814;
++	private static final int ORDER_OF_SORIUS = 2815;
++	private static final int SECRET_LETTER_1 = 2816;
++	private static final int SECRET_LETTER_2 = 2817;
++	private static final int SECRET_LETTER_3 = 2818;
++	private static final int SECRET_LETTER_4 = 2819;
++	
++	// Rewards
++	private static final int MARK_OF_HEALER = 2820;
++	private static final int DIMENSIONAL_DIAMOND = 7562;
++	
++	// NPCs
++	private static final int BANDELLOS = 30473;
++	private static final int SORIUS = 30327;
++	private static final int ALLANA = 30424;
++	private static final int PERRIN = 30428;
++	private static final int GUPU = 30658;
++	private static final int ORPHAN_GIRL = 30659;
++	private static final int WINDY_SHAORING = 30660;
++	private static final int MYSTERIOUS_DARKELF = 30661;
++	private static final int PIPER_LONGBOW = 30662;
++	private static final int SLEIN_SHINING_BLADE = 30663;
++	private static final int KAIN_FLYING_KNIFE = 30664;
++	private static final int KRISTINA = 30665;
++	private static final int DAURIN_HAMMERCRUSH = 30674;
++	
++	// Monsters
++	private static final int LETO_LIZARDMAN_LEADER = 27123;
++	private static final int LETO_LIZARDMAN_ASSASSIN = 27124;
++	private static final int LETO_LIZARDMAN_SNIPER = 27125;
++	private static final int LETO_LIZARDMAN_WIZARD = 27126;
++	private static final int LETO_LIZARDMAN_LORD = 27127;
++	private static final int TATOMA = 27134;
++	
++	private static L2Npc _tatoma;
++	private static L2Npc _letoLeader;
++	
++	public Q226_TestOfTheHealer()
++	{
++		super(226, qn, "Test of the Healer");
++		
++		setItemsIds(REPORT_OF_PERRIN, KRISTINA_LETTER, PICTURE_OF_WINDY, GOLDEN_STATUE, WINDY_PEBBLES, ORDER_OF_SORIUS, SECRET_LETTER_1, SECRET_LETTER_2, SECRET_LETTER_3, SECRET_LETTER_4);
++		
++		addStartNpc(BANDELLOS);
++		addTalkId(BANDELLOS, SORIUS, ALLANA, PERRIN, GUPU, ORPHAN_GIRL, WINDY_SHAORING, MYSTERIOUS_DARKELF, PIPER_LONGBOW, SLEIN_SHINING_BLADE, KAIN_FLYING_KNIFE, KRISTINA, DAURIN_HAMMERCRUSH);
++		
++		addKillId(LETO_LIZARDMAN_LEADER, LETO_LIZARDMAN_ASSASSIN, LETO_LIZARDMAN_SNIPER, LETO_LIZARDMAN_WIZARD, LETO_LIZARDMAN_LORD, TATOMA);
++	}
++	
++	@Override
++	public String onAdvEvent(String event, L2Npc npc, L2PcInstance player)
++	{
++		String htmltext = event;
++		QuestState st = player.getQuestState(qn);
++		if (st == null)
++			return htmltext;
++		
++		// BANDELLOS
++		if (event.equalsIgnoreCase("30473-04a.htm"))
++		{
++			st.setState(STATE_STARTED);
++			st.set("cond", "1");
++			st.playSound(QuestState.SOUND_ACCEPT);
++			st.giveItems(REPORT_OF_PERRIN, 1);
++			if (player.getClassId() == ClassId.knight)
++				st.giveItems(DIMENSIONAL_DIAMOND, 104);
++			else if (player.getClassId() == ClassId.elvenKnight)
++				st.giveItems(DIMENSIONAL_DIAMOND, 72);
++			else if (player.getClassId() == ClassId.cleric)
++				st.giveItems(DIMENSIONAL_DIAMOND, 60);
++			else
++				st.giveItems(DIMENSIONAL_DIAMOND, 45);
++		}
++		else if (event.equalsIgnoreCase("30473-09.htm"))
++		{
++			st.takeItems(GOLDEN_STATUE, 1);
++			st.giveItems(MARK_OF_HEALER, 1);
++			st.rewardExpAndSp(134839, 50000);
++			player.broadcastPacket(new SocialAction(player, 3));
++			st.playSound(QuestState.SOUND_FINISH);
++			st.exitQuest(false);
++		}
++		// PERRIN
++		else if (event.equalsIgnoreCase("30428-02.htm"))
++		{
++			st.set("cond", "2");
++			st.playSound(QuestState.SOUND_MIDDLE);
++			
++			if (_tatoma == null)
++			{
++				_tatoma = addSpawn(TATOMA, -93254, 147559, -2679, 0, false, 0, false);
++				startQuestTimer("tatoma_despawn", 200000, null, player, false);
++			}
++		}
++		// GUPU
++		else if (event.equalsIgnoreCase("30658-02.htm"))
++		{
++			if (st.getQuestItemsCount(57) >= 100000)
++			{
++				st.set("cond", "7");
++				st.playSound(QuestState.SOUND_MIDDLE);
++				st.takeItems(57, 100000);
++				st.giveItems(PICTURE_OF_WINDY, 1);
++			}
++			else
++				htmltext = "30658-05.htm";
++		}
++		else if (event.equalsIgnoreCase("30658-03.htm"))
++			st.set("gupu", "1");
++		else if (event.equalsIgnoreCase("30658-07.htm"))
++		{
++			st.set("cond", "9");
++			st.playSound(QuestState.SOUND_MIDDLE);
++		}
++		// WINDY SHAORING
++		else if (event.equalsIgnoreCase("30660-03.htm"))
++		{
++			st.set("cond", "8");
++			st.playSound(QuestState.SOUND_MIDDLE);
++			st.takeItems(PICTURE_OF_WINDY, 1);
++			st.giveItems(WINDY_PEBBLES, 1);
++		}
++		// DAURIN HAMMERCRUSH
++		else if (event.equalsIgnoreCase("30674-02.htm"))
++		{
++			st.set("cond", "11");
++			st.playSound(QuestState.SOUND_BEFORE_BATTLE);
++			st.takeItems(ORDER_OF_SORIUS, 1);
++			
++			if (_letoLeader == null)
++			{
++				_letoLeader = addSpawn(LETO_LIZARDMAN_LEADER, -97441, 106585, -3405, 0, false, 0, false);
++				startQuestTimer("leto_leader_despawn", 200000, null, player, false);
++			}
++		}
++		// KRISTINA
++		else if (event.equalsIgnoreCase("30665-02.htm"))
++		{
++			st.set("cond", "22");
++			st.playSound(QuestState.SOUND_MIDDLE);
++			st.takeItems(SECRET_LETTER_1, 1);
++			st.takeItems(SECRET_LETTER_2, 1);
++			st.takeItems(SECRET_LETTER_3, 1);
++			st.takeItems(SECRET_LETTER_4, 1);
++			st.giveItems(KRISTINA_LETTER, 1);
++		}
++		// DESPAWNS
++		else if (event.equalsIgnoreCase("tatoma_despawn"))
++		{
++			_tatoma.deleteMe();
++			_tatoma = null;
++			return null;
++		}
++		else if (event.equalsIgnoreCase("leto_leader_despawn"))
++		{
++			_letoLeader.deleteMe();
++			_letoLeader = null;
++			return null;
++		}
++		
++		return htmltext;
++	}
++	
++	@Override
++	public String onTalk(L2Npc npc, L2PcInstance player)
++	{
++		QuestState st = player.getQuestState(qn);
++		String htmltext = getNoQuestMsg();
++		if (st == null)
++			return htmltext;
++		
++		switch (st.getState())
++		{
++			case STATE_CREATED:
++				if (player.getClassId() != ClassId.knight && player.getClassId() != ClassId.elvenKnight && player.getClassId() != ClassId.cleric && player.getClassId() != ClassId.oracle)
++					htmltext = "30473-01.htm";
++				else if (player.getLevel() < 39)
++					htmltext = "30473-02.htm";
++				else
++					htmltext = "30473-03.htm";
++				break;
++			
++			case STATE_STARTED:
++				final int cond = st.getInt("cond");
++				switch (npc.getNpcId())
++				{
++					case BANDELLOS:
++						if (cond < 23)
++							htmltext = "30473-05.htm";
++						else
++						{
++							if (!st.hasQuestItems(GOLDEN_STATUE))
++							{
++								htmltext = "30473-06.htm";
++								st.giveItems(MARK_OF_HEALER, 1);
++								st.rewardExpAndSp(118304, 26250);
++								player.broadcastPacket(new SocialAction(player, 3));
++								st.playSound(QuestState.SOUND_FINISH);
++								st.exitQuest(false);
++							}
++							else
++								htmltext = "30473-07.htm";
++						}
++						break;
++					
++					case PERRIN:
++						if (cond < 3)
++							htmltext = "30428-01.htm";
++						else if (cond == 3)
++						{
++							htmltext = "30428-03.htm";
++							st.set("cond", "4");
++							st.playSound(QuestState.SOUND_MIDDLE);
++							st.takeItems(REPORT_OF_PERRIN, 1);
++						}
++						else
++							htmltext = "30428-04.htm";
++						break;
++					
++					case ORPHAN_GIRL:
++						htmltext = "30659-0" + Rnd.get(1, 5) + ".htm";
++						break;
++					
++					case ALLANA:
++						if (cond == 4)
++						{
++							htmltext = "30424-01.htm";
++							st.set("cond", "5");
++							st.playSound(QuestState.SOUND_MIDDLE);
++						}
++						else if (cond > 4)
++							htmltext = "30424-02.htm";
++						break;
++					
++					case GUPU:
++						if (st.getInt("gupu") == 1 && cond != 9)
++						{
++							htmltext = "30658-07.htm";
++							st.set("cond", "9");
++							st.playSound(QuestState.SOUND_MIDDLE);
++						}
++						else if (cond == 5)
++						{
++							htmltext = "30658-01.htm";
++							st.set("cond", "6");
++							st.playSound(QuestState.SOUND_MIDDLE);
++						}
++						else if (cond == 6)
++							htmltext = "30658-01.htm";
++						else if (cond == 7)
++							htmltext = "30658-04.htm";
++						else if (cond == 8)
++						{
++							htmltext = "30658-06.htm";
++							st.takeItems(WINDY_PEBBLES, 1);
++							st.giveItems(GOLDEN_STATUE, 1);
++						}
++						else if (cond > 8)
++							htmltext = "30658-07.htm";
++						break;
++					
++					case WINDY_SHAORING:
++						if (cond == 7)
++							htmltext = "30660-01.htm";
++						else if (st.hasQuestItems(WINDY_PEBBLES))
++							htmltext = "30660-04.htm";
++						break;
++					
++					case SORIUS:
++						if (cond == 9)
++						{
++							htmltext = "30327-01.htm";
++							st.set("cond", "10");
++							st.playSound(QuestState.SOUND_MIDDLE);
++							st.giveItems(ORDER_OF_SORIUS, 1);
++						}
++						else if (cond > 9 && cond < 22)
++							htmltext = "30327-02.htm";
++						else if (cond == 22)
++						{
++							htmltext = "30327-03.htm";
++							st.set("cond", "23");
++							st.playSound(QuestState.SOUND_MIDDLE);
++							st.takeItems(KRISTINA_LETTER, 1);
++						}
++						else if (cond == 23)
++							htmltext = "30327-04.htm";
++						break;
++					
++					case DAURIN_HAMMERCRUSH:
++						if (cond == 10)
++							htmltext = "30674-01.htm";
++						else if (cond == 11)
++						{
++							htmltext = "30674-02a.htm";
++							if (_letoLeader == null)
++							{
++								_letoLeader = addSpawn(LETO_LIZARDMAN_LEADER, -97441, 106585, -3405, 0, false, 0, false);
++								startQuestTimer("leto_leader_despawn", 200000, null, player, false);
++							}
++						}
++						else if (cond == 12)
++						{
++							htmltext = "30674-03.htm";
++							st.set("cond", "13");
++							st.playSound(QuestState.SOUND_MIDDLE);
++						}
++						else if (cond > 12)
++							htmltext = "30674-04.htm";
++						break;
++					
++					case PIPER_LONGBOW:
++					case SLEIN_SHINING_BLADE:
++					case KAIN_FLYING_KNIFE:
++						if (cond == 13 || cond == 14)
++							htmltext = npc.getNpcId() + "-01.htm";
++						else if (cond > 14 && cond < 19)
++							htmltext = npc.getNpcId() + "-02.htm";
++						else if (cond > 18 && cond < 22)
++						{
++							htmltext = npc.getNpcId() + "-03.htm";
++							st.set("cond", "21");
++							st.playSound(QuestState.SOUND_MIDDLE);
++						}
++						break;
++					
++					case MYSTERIOUS_DARKELF:
++						if (cond == 13)
++						{
++							htmltext = "30661-01.htm";
++							st.set("cond", "14");
++							st.playSound(QuestState.SOUND_BEFORE_BATTLE);
++							addSpawn(LETO_LIZARDMAN_ASSASSIN, player, true, 0, false);
++							addSpawn(LETO_LIZARDMAN_ASSASSIN, player, true, 0, false);
++							addSpawn(LETO_LIZARDMAN_ASSASSIN, player, true, 0, false);
++						}
++						else if (cond == 14)
++							htmltext = "30661-01.htm";
++						else if (cond == 15)
++						{
++							htmltext = "30661-02.htm";
++							st.set("cond", "16");
++							st.playSound(QuestState.SOUND_BEFORE_BATTLE);
++							addSpawn(LETO_LIZARDMAN_SNIPER, player, true, 0, false);
++							addSpawn(LETO_LIZARDMAN_SNIPER, player, true, 0, false);
++							addSpawn(LETO_LIZARDMAN_SNIPER, player, true, 0, false);
++						}
++						else if (cond == 16)
++							htmltext = "30661-02.htm";
++						else if (cond == 17)
++						{
++							htmltext = "30661-03.htm";
++							st.set("cond", "18");
++							st.playSound(QuestState.SOUND_BEFORE_BATTLE);
++							addSpawn(LETO_LIZARDMAN_WIZARD, player, true, 0, false);
++							addSpawn(LETO_LIZARDMAN_WIZARD, player, true, 0, false);
++							addSpawn(LETO_LIZARDMAN_LORD, player, true, 0, false);
++						}
++						else if (cond == 18)
++							htmltext = "30661-03.htm";
++						else if (cond == 19)
++						{
++							htmltext = "30661-04.htm";
++							st.set("cond", "20");
++							st.playSound(QuestState.SOUND_MIDDLE);
++						}
++						else if (cond == 20 || cond == 21)
++							htmltext = "30661-04.htm";
++						break;
++					
++					case KRISTINA:
++						if (cond > 18 && cond < 22)
++							htmltext = "30665-01.htm";
++						else if (cond > 21)
++							htmltext = "30665-04.htm";
++						else
++							htmltext = "30665-03.htm";
++						break;
++				}
++				break;
++			
++			case STATE_COMPLETED:
++				htmltext = getAlreadyCompletedMsg();
++				break;
++		}
++		
++		return htmltext;
++	}
++	
++	@Override
++	public String onKill(L2Npc npc, L2PcInstance player, boolean isPet)
++	{
++		QuestState st = checkPlayerState(player, npc, STATE_STARTED);
++		if (st == null)
++			return null;
++		
++		final int cond = st.getInt("cond");
++		switch (npc.getNpcId())
++		{
++			case TATOMA:
++				if (cond == 1 || cond == 2)
++				{
++					st.set("cond", "3");
++					st.playSound(QuestState.SOUND_MIDDLE);
++				}
++				_tatoma = null;
++				cancelQuestTimer("tatoma_despawn", null, player);
++				break;
++			
++			case LETO_LIZARDMAN_LEADER:
++				if (cond == 10 || cond == 11)
++				{
++					st.set("cond", "12");
++					st.playSound(QuestState.SOUND_MIDDLE);
++					st.giveItems(SECRET_LETTER_1, 1);
++				}
++				_letoLeader = null;
++				cancelQuestTimer("leto_leader_despawn", null, player);
++				break;
++			
++			case LETO_LIZARDMAN_ASSASSIN:
++				if (cond == 13 || cond == 14)
++				{
++					st.set("cond", "15");
++					st.playSound(QuestState.SOUND_MIDDLE);
++					st.giveItems(SECRET_LETTER_2, 1);
++				}
++				break;
++			
++			case LETO_LIZARDMAN_SNIPER:
++				if (cond == 15 || cond == 16)
++				{
++					st.set("cond", "17");
++					st.playSound(QuestState.SOUND_MIDDLE);
++					st.giveItems(SECRET_LETTER_3, 1);
++				}
++				break;
++			
++			case LETO_LIZARDMAN_LORD:
++				if (cond == 17 || cond == 18)
++				{
++					st.set("cond", "19");
++					st.playSound(QuestState.SOUND_MIDDLE);
++					st.giveItems(SECRET_LETTER_4, 1);
++				}
++				break;
++		}
++		
++		return null;
++	}
++	
++	public static void main(String[] args)
++	{
++		new Q226_TestOfTheHealer();
++	}
++}
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30424-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30424-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30424-01.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Allana:<br>
++How could I have possibly incited Perrin? I remember mentioning in conversation a girl with strange powers who grew up with me in the orphanage. Soon afterward, Perrin asked me about her. I told him everything I knew... We were in an <font color="LEVEL">orphanage near Gludio Castle</font>...
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30424-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30424-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30424-02.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Allana:<br>
++We grew up together in an <font color="LEVEL">orphanage near Gludio Castle</font> that was operated by a Dwarven Father. 
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30327-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30327-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30327-01.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Master Sorius:<br>
++I have heard from Priest Bandellos. We will help in any way we can in your investigation.<br>
++What we know so far is that it seems that the followers of Shilen kidnapped the girl. Meet the Dwarf called <font color="LEVEL">Daurin Hammercrush</font> in the <font color="LEVEL">northwest part of Turek Orc Barracks</font>. He is our spy who set off ahead of us.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30660-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30660-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30660-01.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Windy Shaoring:<br>
++Don't scare my friends! This place is safe. I prefer to hang around with basilisks and my monster-eyed friends rather than my grumpy father!<br>
++<a action="bypass -h Quest Q226_TestOfTheHealer 30660-02.htm">"How did you make friends with the monsters?"</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30327-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30327-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30327-02.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Master Sorius:<br>
++Hurry up! I cannot guarantee the child's safety! There is one of our spies who set off ahead of us. Meet the Dwarf called <font color="LEVEL">Daurin Hammercrush</font> in the <font color="LEVEL"> northwest part of Turek Orc Barracks</font>.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30660-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30660-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30660-02.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Windy Shaoring:<br>
++...What are you talking about? Those monsters say hello to me, and I say hello back to them. That's how you make friends, you know. Can't you hear what the monsters are saying, Mystic?<br>
++<a action="bypass -h Quest Q226_TestOfTheHealer 30660-03.htm">"You should go back home now!"</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30327-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30327-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30327-03.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Master Sorius:<br>
++Good job, indeed. I will inform Priest Bandellos of your success... You are taking the Trial of the Healer, are you not?
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30428-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30428-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30428-01.htm	(revision 343)
+@@ -0,0 +1,5 @@
++<html><body>Perrin:<br>
++Ah, the saint! Oh, yes, you have the right person for any question you may have about the saint... You must be a representative of the shrine. I've been expecting you. If you like, I could let you take her with you. Better than just having a meeting with her, huh? <br>
++But, one condition... We have had quite a few expenses in our search for and protection of the saint... I was hoping that the shrine would compensate us... It comes to about <font color="LEVEL">100,000 adena</font>...<br>
++<a action="bypass -h Quest Q226_TestOfTheHealer 30428-02.htm">"Tell me the truth or you will get hurt!"</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30660-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30660-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30660-03.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Windy Shaoring:<br>
++The principal always gets mad at me and never lets me play with my monster friends. But now I am hungry and miss my orphan friends. I shall go back. Here, take this present from me. My monster friend gave it to me. Isn't it pretty?
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30662-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30662-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30662-01.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Piper Longbow:<br>
++My name is Piper. I was sent by Daurin to help you.<br>
++I have been following a <font color="LEVEL">mysterious Dark Elf</font>, he is nearby. Did you hear that? Let's investigate...
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30327-04.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30327-04.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30327-04.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Master Sorius:<br>
++Please go see Priest Bandellos right away! 
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30428-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30428-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30428-02.htm	(revision 343)
+@@ -0,0 +1,5 @@
++<html><body>Perrin:<br>
++Hey, that is not fair! You can't talk to me like that even if you are a representative of the shrine! If that's your attitude, I have someone that wants to meet you...<br>
++Hey, Tatoma! Come over here and teach this child a lesson!<br>
++My young friend, I would like to introduce you Tatoma, the elder brother of the famous Tamil. He is much stronger than his brother! This would not have been necessary if you had only given us the money...
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30660-04.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30660-04.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30660-04.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Windy Shaoring:<br>
++I want to say good-bye to my friends. A good child must be polite. You can go on ahead. My friends will take me to the orphanage.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30662-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30662-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30662-02.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Piper Longbow:<br>
++I think he saw us coming and ran away... Why was he at the altar? It seemed important, he may come back.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30428-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30428-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30428-03.htm	(revision 343)
+@@ -0,0 +1,6 @@
++<html><body>Perrin:<br>
++Hey, hey! Easy there...! OK, if 100,000 is too much how about 90,000... 80,000... OK, let's make it half, 50,000!<br>
++Don't look at me like that... Please, at least 1,000 adena...<br>
++Stop it! OK, OK! The truth!<br>
++I have only heard of the saint! At one time I was seeing a girl named <font color="LEVEL">Allana</font>... She told me that she knew a way that we could make a lot of money! I was just... Oh, rats!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30662-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30662-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30662-03.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Piper Longbow:<br>
++I have found the <font color="LEVEL">saint</font> that you were looking for! She is in a <font color="LEVEL">tent near the Altar of Rites</font>! Go and see her now!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30664-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30664-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30664-01.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Kein Flying Knife:<br>
++I am Kein. Daurin has asked me to assist you. The target is in that direction.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30428-04.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30428-04.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30428-04.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Perrin:<br>
++Please, that is all I know! You should ask <font color="LEVEL">Allana</font> for the details! She lives <font color="LEVEL">near the harbor</font>! I am very busy, so please excuse me.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30664-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30664-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30664-02.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Kein Flying Knife:<br>
++Escape is unlikely, he could not have gotten far! Search the area nearby.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30674-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30674-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30674-01.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Daurin Hammercrush:<br>
++Hey, are you the one I am supposed to meet here? Have you heard? <font color="LEVEL">Leto Lizardmen</font> are hiding in that house over there! Being alone, I couldn't take any action, I had to just follow them here.<br>
++<a action="bypass -h Quest Q226_TestOfTheHealer 30674-02.htm">"Leave the rest to me."</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-04a.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-04a.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30473-04a.htm	(revision 343)
+@@ -0,0 +1,7 @@
++<html><body>Priest Bandellos:<br>
++An ancient prophecy says that one day, when darkness fills the world as water does a bowl, and the groaning of the people can be heard in the rocks of the land itself, there will be born a girl-child, sent by Einhasad, who will cleanse the world.<br>
++Now comes word that the long-awaited one may have finally arrived, a girl who <font color="LEVEL">claims that she is the very one mentioned in the prophecy</font>. We must determine the truth of that claim.<br>
++Your task is to investigate this matter in detail.<br>
++First, visit <font color="LEVEL">Perrin in Gludin Village</font>, who is currently protecting this supposed "saint."<br>
++Before you go, take this <font color="LEVEL">Dimension Diamond</font>. You can trade it to the village gatekeeper for something special that may help you on your journey.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30664-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30664-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30664-03.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Kein Flying Knife:<br>
++First, meet with the <font color="LEVEL">saint</font>. My colleagues tell me that she is in a <font color="LEVEL">tent near the Altar of Rites.</font> She will know the truth about the incident.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30674-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30674-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30674-02.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Daurin Hammercrush:<br>
++Those damn <font color="LEVEL">Leto Lizardmen</font>! They must've been expecting us! Attack!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30658-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30658-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30658-01.htm	(revision 343)
+@@ -0,0 +1,7 @@
++<html><body>Father Gupu:<br>
++Ah, It seems you are talking about Kristina... But you're too late! She was recently kidnapped by some strange men that broke into the orphanage!<br>
++Curse the fiends! What is this world coming to! And what have they done with <font color="LEVEL">Windy</font>? No no, Ari, father is not mad!<br>
++After Kristina's kidnapping, the Elf masters of the Town of Gludio came to help search for her, and now you. And all of them ignoring the fact that the orphanage is in ruins and the children are starving! If only I had <font color="LEVEL">100,000 adena</font>, I would be able to buy beds for these children...<br>
++<a action="bypass -h Quest Q226_TestOfTheHealer 30658-02.htm">Say you will donate that amount</a><br>
++<a action="bypass -h Quest Q226_TestOfTheHealer 30658-03.htm">Pretend that you did not hear anything</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30674-02a.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30674-02a.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30674-02a.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Daurin Hammercrush:<br>
++What are you waiting for?! Catch them before they get away.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30674-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30674-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30674-03.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Daurin Hammercrush:<br>
++Hmm...what does this say? 'Perform the ritual at the Obelisk of Shilen'.. I think they took the girl to <font color="LEVEL">the obelisk in the Dark Forest.</font> Then the <font color="LEVEL">Dark Elves</font> are involved in this case? Curse them! There are many obelisks in the Dark Forest... We can't figure out which obelisk they are at with only this?!<br>
++In any case, we have to track them as soon as possible. We must save the holy maiden before she becomes sacrificed. I am a Dwarf and slow on my feet, so you should leave first. I will send swift supporters to aid you, so hurry! They must be going to a place with an altar...! I will inform Sorius about the situation.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30658-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30658-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30658-02.htm	(revision 343)
+@@ -0,0 +1,5 @@
++<html><body>Father Gupu:<br>
++Really? Are you really going to make a donation?<br>
++Sob...! Thank you! I gladly accept! Children, say thank you... Wait, <font color="LEVEL">Windy</font> is missing!<br>
++I'm sorry, but could you please look for a little girl? She often goes to play in the <font color="LEVEL">Wastelands</font>... She looks like... There should be a picture somewhere... Yes, she looks like this. The Wastelands is too dangerous of a place for a little girl...
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30674-04.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30674-04.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30674-04.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Daurin Hammercrush:<br>
++Hey, what are you waiting for? The victim is a young girl! What if the Dark Elves do something unspeakable to her? You must find her quickly! They must have taken her to a place like an altar...
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30658-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30658-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30658-03.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Father Gupu:<br>
++No no, its all right. I wasn't expecting anything from you.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30658-04.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30658-04.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30658-04.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Father Gupu:<br>
++That little girl causes such mischief! Oh <font color="LEVEL">Windy</font>! Where are you! I hope she's not lost in the <font color="LEVEL">Wastelands</font> all alone! Please, go and find her for me!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30658-05.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30658-05.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30658-05.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Father Gupu:<br>
++No no, I can tell by your clothes that you can't afford to give a donation. Forget about it...!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30658-06.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30658-06.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30658-06.htm	(revision 343)
+@@ -0,0 +1,7 @@
++<html><body>Father Gupu:<br>
++Thank you so much. Windy has just returned! She must be inside washing up!<br>
++Windy! You little rascal! Do you know how worried I was?! Pull one more stunt like that, and you'll get a spanking you will never forget!<br>
++Thank you for finding this child. Making a donation and finding a lost child... We are truly in your debt. <br>
++Oh yes, by the way, Windy asked me to give this to you. It looks like a trinket that she picked up while playing in the Wastelands...<br>
++<a action="bypass -h Quest Q226_TestOfTheHealer 30658-07.htm">Ask about the saint.</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30658-07.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30658-07.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q226_TestOfTheHealer/30658-07.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Father Gupu:<br>
++I don't know... I have no idea what's going on. Why don't you ask the Elves from Gludio Castle? I think they said they were from <font color="LEVEL">the Town of Gludio...</font> And one of them was named <font color="LEVEL">Sorius.</font>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-01a.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-01a.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-01a.htm	(revision 343)
+@@ -0,0 +1,5 @@
++<html><body>Prefect Vokian:<br>
++Have you heard? All of the Orc seers agree that an eternal winter is approaching! It won't be long... We Orcs must prepare for dark days; days of chaos and destruction, dreadful days of endless war and disaster!<br>
++You must prepare yourself as well! First you must complete an occupation change! This is no place for beginners.<br>
++(Quest only for Orc characters who have completed occupation change and are above level 37.)
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30617-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30617-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30617-01.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Turek Chief Burai:<br>
++Flame Lord? The great kingdom of Orc? Nonsense! They are just playing a game, hiding in the forest...Those who call themsleves the aristocrats of Orc! I hate the very sight of them! Leave me now!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30617-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30617-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30617-02.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Turek Chief Burai:<br>
++The Lord of Flames? The great kingdom of Orc? Nonsense! They are just playing a game hiding in the forests...Those who call themsleves the aristocrates of Orc! I hate the very sight of you! Away from my presence!<br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30617-03.htm">I have come to get the Oath of Loyalty and the Seal of Flames from you!</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-05a.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-05a.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-05a.htm	(revision 343)
+@@ -0,0 +1,8 @@
++<html><body>Prefect Vokian:<br>
++Very well! Then I, Prefect Vokian, will give you an order! Defeat these evil creatures and return with proof of your deed.<br>
++There is <font color="LEVEL">Manashen</font>, described as "a stone statue that crosses the sky" near the Ivory Tower of Oren. Smash that thing to pieces and bring back 10 shards.<br>
++There are the <font color="LEVEL">Tyrants</font> who terrorize the Gludio wasteland. Defeat them and bring back at least 10 claws!<br>
++Finally, defeat <font color="LEVEL">Guardian Basilisk</font>, the so-called "guardian of sterility" in Death Pass and bring back at least 10 of its fangs.<br>
++If you are a true heir to the power and pride of the Orcs, you should pass this test easily! Go complete your task and return; I will wait for you here.<br>
++Before you depart, take this <font color="LEVEL">Dimension Diamond</font>. You can trade it to the village gatekeeper for something special that may help you on your journey.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30617-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30617-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30617-03.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Turek Chief Burai:<br>
++I expected that there would be an agent coming from the noble Orcs. I have reinforced my troops for just such an occasion. Anyone who stands in the way of my creation of the great Turek Orc kingdom must die!<br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30617-04.htm">How dare you defy the power of the Flame Lord!</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30617-04.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30617-04.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30617-04.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Turek Chief Burai:<br>
++Soldiers! Attack! Beat this arrogant dog until he lies dead beneath my feet!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30617-05.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30617-05.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30617-05.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Turek Chief Burai:<br>
++How can this be! Those soldiers cost me a fortune! Please, spare my life! I shall give you the <font color="LEVEL">Scepter</font>!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30617-06.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30617-06.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30617-06.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Turek Chief Burai:<br>
++All right, you have the Scepter! I have no more business with you! Please leave now!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30617-07.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30617-07.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30617-07.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Turek Chief Burai:<br>
++Agent of the noble Orc! Please leave in peace!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-01.htm	(revision 343)
+@@ -0,0 +1,6 @@
++<html><body>Prefect Kasman:<br>
++My friend, this reconstruction of the Orc Kingdom that you have undertaken is truly the Lord's work! I can tell you whatever you need to know about the apostate Orcs around here.<br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30501-02.htm">Ask about the Vuku Orcs</a><br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30501-05.htm">Ask about the Turek Orcs</a><br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30501-08.htm">Ask about the Lennunt Orcs</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-02.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Prefect Kasman:<br>
++Tejakar Oroka! You have reclaimed the <font color="LEVEL">Scepter of Vuku</font>! The reunification of the 108 tribes grows nearer!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-03.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Prefect Kasman:<br>
++Take the letter I gave you to the <font color="LEVEL">Chief of the Vuku tribe</font>. You will find him cowering <font color="LEVEL">in a forest near the Town of Gludio</font>. Go and reclaim the Scepter of Flame from those lowlifes!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-04.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-04.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-04.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Prefect Kasman:<br>
++Take the letter I gave you to the <font color="LEVEL">Chief of the Vuku tribe</font>. You will find him cowering <font color="LEVEL">in a forest near the Town of Gludio</font>. Go and reclaim the Scepter of Flame from those lowlifes!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-05.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-05.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-05.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Prefect Kasman:<br>
++Tejakar Oroka! Have you retrieved the <font color="LEVEL">Scepter of Turek</font>? The reunification of the 108 tribes will soon come!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-06.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-06.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-06.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Prefect Kasman:<br>
++You must take the letter I gave you to the <font color="LEVEL">Chief of the Vuku</font>! On the road north from this village you will find <font color="LEVEL">the army post of Turek Orcs</font>.<br>
++You must never forget that you are the representative of the greatest Flame Lord, Kakai! Always behave with the pride and dignity that your master commands!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-01.htm	(revision 343)
+@@ -0,0 +1,5 @@
++<html><body>Seer Manakia:<br>
++Agent of the Lord! The upcoming Chaotic Chronicle could signal a new beginning for us. From the flames of war and disaster, we the great kingdom of the Orcs will rise from the ashes.<br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30515-02.htm">Ask about the Breka Orc</a><br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30515-05.htm">Ask about the Enku Orc</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-07.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-07.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-07.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Prefect Kasman:<br>
++You must take the letter I gave you to the <font color="LEVEL">Chief of the Turek</font>! On the road north from this village you will find <font color="LEVEL">the Turek Orc Military Post</font>.<br>
++You must never forget that you are the representative of the greatest Flame Lord, Kakai! Always behave with the pride and dignity that your master commands!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-02.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Seer Manakia:<br>
++Tejakar Oroka! You have recovered the <font color="LEVEL">Scepter of Breka</font>! Our great kingdom of Orcs shall rise again!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-01.htm	(revision 343)
+@@ -0,0 +1,6 @@
++<html><body>Gandi Chief Chianta:<br>
++The wind cries and the earth trembles! I see the fires of war reflected in your eyes.<br>
++The time of chaos draws nigh, and brings with it endless war, confusion, massacre and battle! I, Gandi Chief Chianta, decree this day that you must become strong in order to survive! Only the strongest shall inherit the new age!<br>
++Young Orc! I see by your necklace that you have passed Vokian's test and are an envoy of the Lord! Now heed my words carefully!<br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30642-02.htm">Listen</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-01.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Enku Chief Kepra:<br>
++Orc of the ancient kingdom! What brings you here! Have you come to pay tribute to me, the great King of the Enku tribe? In order to receive an audience with me you must at the least bring <font color="LEVEL">a letter handwritten by the Seer of your tribe</font>! Now leave at once!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30571-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30571-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30571-01.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Seer Tanapi:<br>
++Oh, my! No other person has ever brought so many scepters at one time. However, the mark from the Lord is still not assured... The Lord has been very angry lately because of a few <font color="LEVEL">bad incidents</font> that took place!<br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30571-02.htm">"What bad incidents?"</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-08.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-08.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-08.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Prefect Kasman:<br>
++Tejakar Oroka! Have you reclaimed the <font color="LEVEL">Scepter of Lennunt</font>? The time of the reunification of the 108 tribes draws nearer!!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-03.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Seer Manakia:<br>
++Take this letter to the <font color="LEVEL">Chief of the Breka Orcs</font>! He can be found on the <font color="LEVEL">southern cliff of Dragon Valley</font>.<br>
++Always remember that you represent the great Flame Lord, Kakai! You must display the honor and dignity befitting our Lord!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-02.htm	(revision 343)
+@@ -0,0 +1,7 @@
++<html><body>Gandi Chief Chianta:<br>
++All Orc tribal chiefs possess a<font color="LEVEL"> 'Scepter of Flame'</font>. The scepter was bequethed to them by the ancient Priests of Pa'agrio and symbolizes their authority.<br>
++As Envoy of the Lord, you must seek out the renegade Orc tribes and demand that they return to servicing the Lord. They must pledge their allegiance and relinquish their Scepter of Flame!<br>
++These renegade Orcs are scarcely more than animals and should jump at the chance to rejoin the mighty Orc Kingdom!<br>
++If they should refuse, you must take their scepter by force and deliver just punishment upon them! A punishment befitting fools that would refuse to accept their true leader!<br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30642-03.htm">Ask for more information regarding the renegade Orc tribes</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-02.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Enku Chief Kepra:<br>
++Orc of the ancient kingdom! What brings you here? Have you come to pay tribute to me, the great King of the Enku tribe?<br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30616-03.htm">"I have come to receive a Pledge of Loyalty and the Scepter of Flame!"</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30571-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30571-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30571-02.htm	(revision 343)
+@@ -0,0 +1,6 @@
++<html><body>Seer Tanapi:<br>
++Many years ago our ancestors' tomb was desecrated and robbed by goblin grave robbers. They made off with the <font color="LEVEL">Scepter of Tantos</font>.<br>
++As you know, the whole Tantos tribe was executed for high treason 100 years ago by order of the Lord Pa'agrio. Later it turned out that the charges were erroneous, caused by some wicked Dwarves' mischief. The Lord of Flame bitterly mourned his mistake. Each year we hold a memorial service to seek forgiveness from our wrongly executed brothers of Tantos and comfort their souls.<br>
++If you recover the Scepter of Tantos, I am sure the Monarch will be very pleased. And the Mark of Glory will be yours for sure!<br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30571-03.htm">"I shall bring back the Scepter of Tantos!"</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-09.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-09.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-09.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Prefect Kasman:<br>
++A man claiming to be the <font color="LEVEL">Chief of the Lennunt tribe</font> is currently on the <font color="LEVEL">southern seashore of Gludio</font>. Take this letter to him. Don't forget that you are the representative of the greatest Flame Lord, Kakai and you must always display the pride and dignity befitting your position!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-04.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-04.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-04.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Seer Manakia:<br>
++Take this letter to the Chief of the <font color="LEVEL">Breka Orc</font>! He is on the <font color="LEVEL">southern cliff of dragon valley</font>.<br>
++Always remember that you represent the great Flame Lord, Kakai!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-03.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Gandi Chief Chianta:<br>
++The renegade Orc tribes you must find are the <font color="LEVEL">Breka, Enku, Vuku, Turek, and Tunath!</font> Five tribes all together! Ask <font color="LEVEL">Seer Manakia of the Town of Giran</font> about the Breka and Enku tribes! The other three tribes, the Vuku, Turek, and Tunath, will be found in the west. Ask <font color="LEVEL">Prefect Kasman of Gludin</font> for further information about them.<br>
++Come back to me when you have recovered all of the seals from these lower Orc tribes! Now be on your way! For the honor of the greater Orc kingdom!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-03.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Enku Chief Kepra:<br>
++Why should I do this for the ruler of a ruined kingdom! He has been defeated by the Humans and hides like a coward on the plateau! Your days are over!<br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30616-04.htm">"If you do not give me the Scepter, I shall take it by force!"</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30571-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30571-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30571-03.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Seer Tanapi:<br>
++The goblin grave robbers were working at the behest of the Ragna tribe. The spirits of the wind whispered this into my ear. I don't have any information other than that the <font color="LEVEL">Chief or the Seer of the Ragna tribe</font> has the scepter.<br>
++They are trying to conjure the spirit of the leader of the Tantos tribe. In fact, at this very moment, they are performing the ceremony somewhere on the <font color="LEVEL">Immortal Plateau</font>. You must find them, stop the ceremony, and get back the scepter! Hurry!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-05.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-05.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-05.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Seer Manakia:<br>
++Tejakar Oroka! <font color="LEVEL">You have found the Scepter of Enku</font>! The great kingdom of Orcs shall soon rise again!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-04.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-04.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-04.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Gandi Chief Chianta:<br>
++I do not expect to see you again until you have recovered the <font color="LEVEL">Scepters of the Breka, Enku, Vuku, Turek, and Tunath tribes</font>! This is an important first step towards reuniting the greater Orc kingdom! You must not take your duty lightly! For the whereabouts of these renegade Orcs, ask <font color="LEVEL">Manakia of the Town of Giran</font> and <font color="LEVEL">Prefect Kasman of Gludin</font>.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-04.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-04.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-04.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Enku Chief Kepra:<br>
++Wha...what!? How dare you! I would never give the seal to a child like you! Guard! Beat some sense into this Orc!<br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30616-05.htm">"Do you dare challenge the authority of Flame Lord!"</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30571-04.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30571-04.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30571-04.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Seer Tanapi:<br>
++We must hurry and find the Scepter of Tantos! It is being held by the <font color="LEVEL">Chief or Seer of the Ragna Tribe</font>! They are trying to conjure the spirit of the Tantos tribe leader, somewhere on the <font color="LEVEL">Immortal Plateau</font>! Time is of the essence! You must find them quickly, stop the ceremony and recover the scepter!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-06.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-06.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-06.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Seer Manakia:<br>
++Take this letter to the <font color="LEVEL">Chief of the Enku Orcs</font>! He is on the <font color="LEVEL">northern seashore of Dion territory</font>.<br>
++Remember that you represent the Lord of Flame!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30565-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30565-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30565-01.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Flame Lord Kakai:<br>
++The seal of the glorious warrior tribe has been stolen from the heart of our kingdom! I have no need for the seals of lesser tribes from the outskirts. <font color="LEVEL">Now go away!</font>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-05.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-05.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-05.htm	(revision 343)
+@@ -0,0 +1,6 @@
++<html><body>Gandi Chief Chianta:<br>
++Good work, Envoy of the Lord! I see you have recovered the <font color="LEVEL">Scepters of the Breka, Enku, Vuku, Turek, and Tunath tribes</font>! It shall not be long before all 108 Orc tribes are reunited under the Lord of Flame!<br>
++Now is the time to face the <font color="LEVEL">Timak and Tamlin tribes</font> of the north! The last envoys I sent to them lost their heads! These tribes are savage beasts that have forgotten the most common courtesy! Fools that have forsaken the pride and identity of Orcs!<br>
++A war has been declared to bring these tribes into the fold. You must join us in battle to prove your spirit and loyalty!<br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30642-07.htm">"I shall participate in the battle!"</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-05.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-05.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-05.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Enku Chief Kepra:<br>
++I shall never surrender! My guards will cut you to ribbons! Let's see what you're made of!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30571-05.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30571-05.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30571-05.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Seer Tanapi:<br>
++Ah! At last we have recovered the <font color="LEVEL">Scepter of Tantos</font> which was stolen from the ancestors' tombs by those filthy grave robbers! The betrayers of Ragna were trying to summon the spirit of Tantos and harm the Lord! Thanks to you, their wicked plan was foiled!<br>
++I shall put the Scepter of Tantos with the other scepters of flame that you have recovered! Now take this ceremonial box which holds the scepters and go to meet <font color="LEVEL">Lord Kakai</font>! He will praise your achievement and contribution and grant you the Mark of Glory!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30565-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30565-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30565-02.htm	(revision 343)
+@@ -0,0 +1,6 @@
++<html><body>Flame Lord Kakai:<br>
++You have found the Scepter of the Tantos tribe! I hope this appeases the angry souls of the Tantos ancestors, even if it does not entirely wash away all our sins.<br>
++I have heard that the Ragna tribe was behind this whole thing. Is this true? First they betrayed us; now they challenge my authority. Soon the rivers will run red with their traitorous blood!<br>
++You took this from one of the lower tribes, did you not? Did you first extract an oath of loyalty from them -- or punish them for their refusal? Ah, well done, Warrior! I remember how naive you were when we met after the completion of your training at the Temple of Pa'agrio. Now you have grown into a mighty champion!<br>
++Your reward is my personal gratitude and this <font color="LEVEL">Mark of Glory</font>, which you can use to transfer to a higher class. Now return to the Human lands and seek out your destiny! I am confident that you will bring great glory to our tribe, and that our paths will cross again.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-07.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-07.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-07.htm	(revision 343)
+@@ -0,0 +1,4 @@
++ <html><body>Seer Manakia:<br>
++Take the letter that I gave you to the <font color="LEVEL">Chief of the Enku Orcs</font>! He is on the <font color="LEVEL">southern seashore of Dion territory</font>.<br>
++Remember that you represent the Lord of Flame!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-06.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-06.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-06.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Gandi Chief Chianta:<br>
++But <font color="LEVEL">you still lack experience! </font>The Timak and Tamlin Orcs may be savage and uncivilized, but their strength cannot be taken lightly. Underestimate them and you will be a cold corpse on the battlefield, so <font color="LEVEL">train harder</font>! I won't send you onto the battlefield until I feel you are ready.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-06.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-06.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-06.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Enku Chief Kepra:<br>
++Stop! Halt! Are you trying to extinguish our race? Go ahead and take it! This <font color="LEVEL">Scepter</font> is nothing more than an ornament! Take it and leave!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30571-06.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30571-06.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30571-06.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Seer Tanapi:<br>
++I have sent word that you are coming to see the <font color="LEVEL">Flame Lord</font>! You must not keep him waiting! Hurry!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-08.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-08.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30515-08.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Seer Manakia:<br>
++The time has come! The rebirth of the glorious Orc kingdom is at hand! Reunification of the 108 tribes! Tejakar Oroka! Dekara Lamchar Kakai!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-07.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-07.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-07.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Gandi Chief Chianta:<br>
++Tejakar Oroka! As a Warrior of the great Orc race and an honorable Envoy of the Lord of Flame, go now to the battlefield and punish the renegade tribes! Bring back <font color="LEVEL">20 Timak Orc Heads</font> and <font color="LEVEL">20 Tamlin Orc Heads</font> as trophies of war! That is the least punishment those traitors deserve!<br>
++Come back to me when you have collected these trophies!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-07.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-07.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-07.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Enku Chief Kepra:<br>
++Violent oppressor! Enemy of our race! I have already suffered the indignity of losing the <font color="LEVEL">Tribal Scepter</font>! Do not make me suffer any longer!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-08.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-08.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-08.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Gandi Chief Chianta:<br>
++<font color="LEVEL">You still lack experience!</font> The Timak and Tamlin Orcs may be savage and uncivilized, but their strength cannot be taken lightly. Underestimate them and you will be a cold corpse on the battlefield! <font color="LEVEL">Train harder!</font> I will not send you onto the battlefield until I feel you are ready.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-08.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-08.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30616-08.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Enku Chief Kepra:<br>
++Do not humiliate me further. Leave me alone!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-09.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-09.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-09.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Gandi Chief Chianta:<br>
++Tejakar Oroka! As a Warrior of the great Orc race and as an envoy of the honorable Lord of Flame, go now onto the battlefield and punish the renegade tribes! Bring back <font color="LEVEL">20 Timak Orc Heads</font> and <font color="LEVEL">20 Tamlin Orc Heads</font> as trophies of war! That is the least punishment these traitors deserve!<br>
++Come back to me when you have collected all of the trophies!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-10.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-10.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-10.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Prefect Kasman:<br>
++A man claiming to be the <font color="LEVEL">Chief of the Lennunt tribe</font> is currently on the <font color="LEVEL">southern seashore of Gludio</font>. Take this letter to him. Don't forget that you are the representative of the greatest Flame Lord, Kakai and you must always display the pride and dignity befitting your position!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-11.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-11.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30501-11.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Prefect Kasman:<br>
++The time has come for all of the 108 tribes to reunite under our Flame Lord! The world trembles before the glorious kingdom of Orc! All praise the great Flame Lord Kakai! Tejakar Oroka!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-01.htm	(revision 343)
+@@ -0,0 +1,5 @@
++<html><body>Prefect Vokian:<br>
++Have you heard? All of the Orc seers agree that an eternal winter is approaching! It won't be long... We Orcs must prepare for dark days; days of chaos and destruction, dreadful days of endless war and disaster!<br>
++People like you are indolent and weak. We are stronger than anyone else! We shall fight the darkness that the Age of Chaos brings. Victory will be ours alone!<br>
++(Quest for Orc characters of level 37 and above.)
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-02.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Prefect Vokian:<br>
++Have you heard? All of the Orc seers agree that an eternal winter is approaching! It won't be long... We Orcs must prepare for dark days; days of chaos and destruction, dreadful days of endless war and disaster! You must prepare yourself as well! This is the only was we can defeat the darkness that the Age of Chaos brings.<br>
++(Quest for Orc characters of level 37 and above.)
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-01.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Breka Chief Voltar:<br>
++You impertinent novice! What makes you think you can just barge in here to see me, Voltar, Chief of the Breka? To be in my presence you need at least <font color="LEVEL">a signed letter from your tribe's Shaman</font>! Get out of my sight!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-03.htm	(revision 343)
+@@ -0,0 +1,5 @@
++<html><body>Prefect Vokian:<br>
++Have you heard? All of the Orc seers agree that an eternal winter is approaching! It won't be long... We Orcs must prepare for dark days; days of chaos and destruction, dreadful days of endless war and disaster!<br>
++People like you are indolent and weak. We are stronger than anyone else! We shall conquer the apostate tribes and reconstruct the <font color="LEVEL">great kingdom of Orcs</font> to fight the darkness of the chaotic days. Victory will be ours alone!<br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30514-04.htm">"I shall participate in the reconstruction of the kingdom!"</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-10.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-10.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-10.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Gandi Chief Chianta:<br>
++Tejakar Oroka! As a Warrior of the great Orc race and as an envoy of the honorable Lord of Flame, go now onto the battlefield and punish the renegade tribes! Bring back <font color="LEVEL">20 Timak Orc Heads</font> and <font color="LEVEL">20 Tamlin Orc Heads</font>! That is the least punishment those traitors deserve!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-02.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Breka Chief Voltar:<br>
++You! North Orc! Saucy brat! Why are you here?<br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30615-03.htm">I have come to collect the Oath of Loyalty and the Scepter of Flame!</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-04.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-04.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-04.htm	(revision 343)
+@@ -0,0 +1,6 @@
++<html><body>Prefect Vokian:<br>
++To rebuild the kingdom of Orcs we must first crush the dissent within the kingdom! We must <font color="LEVEL">make the renegade Orcs return to the kingdom</font>. Hundreds of years ago these apostates denied the Lord of Flame's authority and abandoned the kingdom.<br>
++If you will lead the force to subjugate them once again to the great kingdom of Orc, you shall be rewarded with a Mark of Glory by the Monarch. This will ensure your promotion to a higher level!<br>
++But first <font color="LEVEL">you must be tested to see if you are worthy to be the representative of the Monarch!</font> Are you ready for the test?<br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30514-05a.htm">"I am ready!"</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-11.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-11.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-11.htm	(revision 343)
+@@ -0,0 +1,5 @@
++<html><body>Gandi Chief Chianta:<br>
++Glorious Orc Warrior, you have fought well! You have displayed boundless courage in battle with the enemy!<br>
++Now you must deliver the Seals of Flame you wrenched from the lesser Orcs to our Lord! He also wants the seals from the Tamlin and Timak tribes, but we must be satisfied with what we have at the moment!<br>
++First, return to the <font color="LEVEL">Immortal Plateau</font> and see <font color="LEVEL">Seer Tanapi</font>. He will teach you the protocols you must use to present the seals to our Flame Lord!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-03.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Breka Chief Voltar:<br>
++Ha! We declared our independence 500 years ago! Now you come here and tell me that I should pledge loyalty to the King? The days when we lived as an oppressed race are long over! Go and give your King this message: I would rather be the head of the snake than the tail of the dragon!<br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30615-04.htm">"I will take the Royal Seal by force if you will not pledge loyalty to the King!"</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-05.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-05.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-05.htm	(revision 343)
+@@ -0,0 +1,7 @@
++<html><body>Prefect Vokian:<br>
++Excellent! Now listen carefully to what I must ask of you...<br>
++First you must find and kill the 'flying stone statue', known as <font color="LEVEL">Manashen</font>. He lurks near the Ivory Tower of Oren. Break him into pieces and bring 10 shards of his body back to me as proof!<br>
++Next, in the Wastelands of Gludio you will find the so-called 'tyrants of the wild', the <font color="LEVEL">Tyrants</font>. Kill them and bring their claws back to me! You must bring at least 10!<br>
++And finally, you must hunt and kill the 'guardian of barren earth', the <font color="LEVEL">Guardian Basilisk</font>. He can be found in the Corridors of Death! You must knock him down and bring back 10 of his teeth!<br>
++For you who so perfectly embody the power and dignity of the Orc, this test should be almost effortless. Return promptly after completing your mission. I shall be waiting.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-12.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-12.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-12.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Gandi Chief Chianta:<br>
++Go now to the eternal homeland of the Orcs, the <font color="LEVEL">Immortal Plateau</font>, and present the Lord of Flame with the seals you have recovered! But before you meet with the Lord, go to <font color="LEVEL">Seer Tanapi</font> first. He shall teach you the protocols you must know before holding an audience with the Flame Lord!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-04.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-04.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-04.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Breka Chief Voltar:<br>
++Tejakar Oroka! Insolent fool! <font color="LEVEL">Vultus! Pashika!</font> Teach this foolish kid a lesson worth remembering!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-06.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-06.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-06.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Prefect Vokian:<br>
++You must kill the monsters and bring back the proof! You must prove your strength and tenacity!<br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30514-07a.htm">Ask about the monsters.</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-13.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-13.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30642-13.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Gandi Chief Chianta:<br>
++If you can recover the Scepter of the Tantos tribe the Flame Lord shall be greatly pleased! I wish you luck!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-05.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-05.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-05.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Breka Chief Voltar:<br>
++Voltus! Pasica! Teach this novice a lesson!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30619-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30619-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30619-01.htm	(revision 343)
+@@ -0,0 +1,5 @@
++<html><body>Vuku Chief Driko:<br>
++Oh oppressor of flames, why has such a noble person come to this obscure place? Have you come to meet me, Driko, leader of the Vuku tribe?<br>
++Right now, I am facing a problem which could be a matter of life and death for my tribe! I have no interest in the glory of the old kingdom.<br>
++Unless you bring a <font color="LEVEL">signed letter from your Prefect</font> expressing the urgency of your situation, I, Driko, the leader of the Vuku Tribe have nothing to discuss with you anymore.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-06.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-06.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-06.htm	(revision 343)
+@@ -0,0 +1,6 @@
++<html><body>Breka Chief Voltar:<br>
++Tucro lecha Vultus! Pashika! My sons...!<br>
++What do you want? The Royal Seal?<br>
++All right, take it! Just leave us be! <font color="LEVEL">I will give you the Royal Seal!</font><br>
++I don't want to have to watch my family die again!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-07a.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-07a.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-07a.htm	(revision 343)
+@@ -0,0 +1,7 @@
++<html><body>Prefect Vokian:<br>
++Did you forget your mission already? I truly dislike repeating myself so pay attention...<br>
++First you must find and kill the 'flying stone statue', known as <font color="LEVEL">Manashen</font>. He lurks near the Ivory Tower of Oren. Break him into pieces and bring 10 shards of his body back to me as proof!<br>
++Next, in the Wastelands of Gludio you will find the so-called 'tyrants of the wild', the <font color="LEVEL">Tyrants</font>. Kill them and bring their claws back to me! You must bring at least 10!<br>
++And finally, you must hunt and kill the 'guardian of barren earth', the <font color="LEVEL">Guardian Basilisk</font>. He can be found in the Corridors of Death! You must knock him down and bring back 10 of his teeth!<br>
++Return promptly after completing your mission. I shall be waiting.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-08.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-08.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-08.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Prefect Vokian:<br>
++The stone shards of Manashen, the claws of the Tyrant, and the teeth of the Basilisk! Good job! You have fulfilled the mission! As a token of my appreciation please take this <font color="LEVEL">Necklace of Authority</font>. Now go forth and do the work of the Lord Kakai! You must hurry and meet <font color="LEVEL">Chianta, the Chief of the Town of Dion</font>! He will have another task for you.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30619-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30619-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30619-02.htm	(revision 343)
+@@ -0,0 +1,5 @@
++<html><body>Vuku Chief Driko:<br>
++For us, survival is the greatest virtue. I knew that there would come a day when this seal would be traded for the safety of our tribe. We have many difficulties in this area, often coming into conflicts with Humans. We plan to return to our base camp. We are moving to the eastern swamp area. But the reason we came here in the first place was because of the grotesque insect tribe which drove us out.<br>
++<font color="LEVEL">If you will remove them from our area, I will give you the Scepter of Flame</font>. Do you accept my offer?<br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30619-03.htm">"I accept your proposal!"</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-07.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-07.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-07.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Breka Chief Voltar:<br>
++You are the enemy of my family and the oppressor of my people! I have already given you the <font color="LEVEL">Royal Seal</font>! Now get out!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-09.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-09.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-09.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Prefect Vokian:<br>
++The Necklace of Authority officially acknowledges you as an agent of the Monarch! From this time forward you must do everything you can to quell the dissent in the kingdom of Orcs. You must force the apostate Orc tribes to rejoin their brothers in service to the Lord of Flame! Now, hurry and meet <font color="LEVEL">Chianta, Chief of the Town of Dion</font>! He has a task for you.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30619-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30619-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30619-03.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Vuku Chief Driko:<br>
++It appears that the <font color="LEVEL">swamp stakatos</font> are unable to breed without the drones. Therefore you must go and exterminate the <font color="LEVEL">drones</font> first. Kill them all and gather <font color="LEVEL">30 husks</font>. Bring them back to me and I shall give you the Scepter of Flame.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-08.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-08.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30615-08.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Breka Chief Voltar:<br>
++Get out of my sight!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30619-04.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30619-04.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30619-04.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Vuku Chief Driko:<br>
++I am facing a big problem which could be a matter of life and death for my tribe! I have no interest in the glory of the old kingdom. Per the agreement between us, I shall give you our tribal scepter when you kill the <font color="LEVEL">drones</font> among the <font color="LEVEL">swamp stakatos</font> and bring me <font color="LEVEL">30 of their husks</font>.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30619-05.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30619-05.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30619-05.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Vuku Chief Driko:<br>
++Well done! I will <font color="LEVEL">return the scepter</font> as promised. I have no interest in the reunification of our ancient kingdom nor in the symbol of its authority. You noble Orcs will burn out and perish after foolishly fighting for the supremacy over the continent, and we shall survive for eternity!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30619-06.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30619-06.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30619-06.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Vuku Chief Driko:<br>
++The agreement is settled, and we have already given you the <font color="LEVEL">Scepter of Flame</font>! There is no more Contract between us! As I told you before, I have no interest in the reunification of the ancient kingdom!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30619-07.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30619-07.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30619-07.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Vuku Chief Driko:<br>
++I am not at all interested in the reunification of our ancient kingdom nor in the symbol of its authority.<br>
++You noble Orcs will die in the end after fighting for supremacy over the continent, be we shall survive for eternity!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-10.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-10.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30514-10.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Prefect Vokian:<br>
++You will restore the glory of the unified Kingdom of Orcs!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/Q220_TestimonyOfGlory.java
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/Q220_TestimonyOfGlory.java	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/Q220_TestimonyOfGlory.java	(revision 343)
+@@ -0,0 +1,791 @@
++/*
++ * This program is free software: you can redistribute it and/or modify it under
++ * the terms of the GNU General Public License as published by the Free Software
++ * Foundation, either version 3 of the License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
++ * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License along with
++ * this program. If not, see <http://www.gnu.org/licenses/>.
++ */
++package quests.Q220_TestimonyOfGlory;
++
++import net.sf.l2j.gameserver.model.actor.L2Npc;
++import net.sf.l2j.gameserver.model.actor.instance.L2PcInstance;
++import net.sf.l2j.gameserver.model.base.Race;
++import net.sf.l2j.gameserver.model.quest.Quest;
++import net.sf.l2j.gameserver.model.quest.QuestState;
++import net.sf.l2j.gameserver.network.serverpackets.SocialAction;
++
++public class Q220_TestimonyOfGlory extends Quest
++{
++	private static final String qn = "Q220_TestimonyOfGlory";
++	
++	// Items
++	private static final int VOKIAN_ORDER_1 = 3204;
++	private static final int MANASHEN_SHARD = 3205;
++	private static final int TYRANT_TALON = 3206;
++	private static final int GUARDIAN_BASILISK_FANG = 3207;
++	private static final int VOKIAN_ORDER_2 = 3208;
++	private static final int NECKLACE_OF_AUTHORITY = 3209;
++	private static final int CHIANTA_ORDER_1 = 3210;
++	private static final int SCEPTER_OF_BREKA = 3211;
++	private static final int SCEPTER_OF_ENKU = 3212;
++	private static final int SCEPTER_OF_VUKU = 3213;
++	private static final int SCEPTER_OF_TUREK = 3214;
++	private static final int SCEPTER_OF_TUNATH = 3215;
++	private static final int CHIANTA_ORDER_2 = 3216;
++	private static final int CHIANTA_ORDER_3 = 3217;
++	private static final int TAMLIN_ORC_SKULL = 3218;
++	private static final int TIMAK_ORC_HEAD = 3219;
++	private static final int SCEPTER_BOX = 3220;
++	private static final int PASHIKA_HEAD = 3221;
++	private static final int VULTUS_HEAD = 3222;
++	private static final int GLOVE_OF_VOLTAR = 3223;
++	private static final int ENKU_OVERLORD_HEAD = 3224;
++	private static final int GLOVE_OF_KEPRA = 3225;
++	private static final int MAKUM_BUGBEAR_HEAD = 3226;
++	private static final int GLOVE_OF_BURAI = 3227;
++	private static final int MANAKIA_LETTER_1 = 3228;
++	private static final int MANAKIA_LETTER_2 = 3229;
++	private static final int KASMAN_LETTER_1 = 3230;
++	private static final int KASMAN_LETTER_2 = 3231;
++	private static final int KASMAN_LETTER_3 = 3232;
++	private static final int DRIKO_CONTRACT = 3233;
++	private static final int STAKATO_DRONE_HUSK = 3234;
++	private static final int TANAPI_ORDER = 3235;
++	private static final int SCEPTER_OF_TANTOS = 3236;
++	private static final int RITUAL_BOX = 3237;
++	
++	// Rewards
++	private static final int MARK_OF_GLORY = 3203;
++	private static final int DIMENSIONAL_DIAMOND = 7562;
++	
++	// NPCs
++	private static final int KASMAN = 30501;
++	private static final int VOKIAN = 30514;
++	private static final int MANAKIA = 30515;
++	private static final int KAKAI = 30565;
++	private static final int TANAPI = 30571;
++	private static final int VOLTAR = 30615;
++	private static final int KEPRA = 30616;
++	private static final int BURAI = 30617;
++	private static final int HARAK = 30618;
++	private static final int DRIKO = 30619;
++	private static final int CHIANTA = 30642;
++	
++	// Monsters
++	private static final int TYRANT = 20192;
++	private static final int MARSH_STAKATO_DRONE = 20234;
++	private static final int GUARDIAN_BASILISK = 20550;
++	private static final int MANASHEN_GARGOYLE = 20563;
++	private static final int TIMAK_ORC = 20583;
++	private static final int TIMAK_ORC_ARCHER = 20584;
++	private static final int TIMAK_ORC_SOLDIER = 20585;
++	private static final int TIMAK_ORC_WARRIOR = 20586;
++	private static final int TIMAK_ORC_SHAMAN = 20587;
++	private static final int TIMAK_ORC_OVERLORD = 20588;
++	private static final int TAMLIN_ORC = 20601;
++	private static final int TAMLIN_ORC_ARCHER = 20602;
++	private static final int RAGNA_ORC_OVERLORD = 20778;
++	private static final int RAGNA_ORC_SEER = 20779;
++	private static final int PASHIKA_SON_OF_VOLTAR = 27080;
++	private static final int VULTUS_SON_OF_VOLTAR = 27081;
++	private static final int ENKU_ORC_OVERLORD = 27082;
++	private static final int MAKUM_BUGBEAR_THUG = 27083;
++	private static final int REVENANT_OF_TANTOS_CHIEF = 27086;
++	
++	// Checks & Instances
++	private static boolean _sonsOfVoltar = false;
++	private static boolean _enkuOrcOverlords = false;
++	private static boolean _makumBugbearThugs = false;
++	
++	public Q220_TestimonyOfGlory()
++	{
++		super(220, qn, "Testimony Of Glory");
++		
++		setItemsIds(VOKIAN_ORDER_1, MANASHEN_SHARD, TYRANT_TALON, GUARDIAN_BASILISK_FANG, VOKIAN_ORDER_2, NECKLACE_OF_AUTHORITY, CHIANTA_ORDER_1, SCEPTER_OF_BREKA, SCEPTER_OF_ENKU, SCEPTER_OF_VUKU, SCEPTER_OF_TUREK, SCEPTER_OF_TUNATH, CHIANTA_ORDER_2, CHIANTA_ORDER_3, TAMLIN_ORC_SKULL, TIMAK_ORC_HEAD, SCEPTER_BOX, PASHIKA_HEAD, VULTUS_HEAD, GLOVE_OF_VOLTAR, ENKU_OVERLORD_HEAD, GLOVE_OF_KEPRA, MAKUM_BUGBEAR_HEAD, GLOVE_OF_BURAI, MANAKIA_LETTER_1, MANAKIA_LETTER_2, KASMAN_LETTER_1, KASMAN_LETTER_2, KASMAN_LETTER_3, DRIKO_CONTRACT, STAKATO_DRONE_HUSK, TANAPI_ORDER, SCEPTER_OF_TANTOS, RITUAL_BOX);
++		
++		addStartNpc(VOKIAN);
++		addTalkId(KASMAN, VOKIAN, MANAKIA, KAKAI, TANAPI, VOLTAR, KEPRA, BURAI, HARAK, DRIKO, CHIANTA);
++		
++		addAttackId(RAGNA_ORC_OVERLORD, RAGNA_ORC_SEER, REVENANT_OF_TANTOS_CHIEF);
++		addKillId(TYRANT, MARSH_STAKATO_DRONE, GUARDIAN_BASILISK, MANASHEN_GARGOYLE, TIMAK_ORC, TIMAK_ORC_ARCHER, TIMAK_ORC_SOLDIER, TIMAK_ORC_WARRIOR, TIMAK_ORC_SHAMAN, TIMAK_ORC_OVERLORD, TAMLIN_ORC, TAMLIN_ORC_ARCHER, RAGNA_ORC_OVERLORD, RAGNA_ORC_SEER, PASHIKA_SON_OF_VOLTAR, VULTUS_SON_OF_VOLTAR, ENKU_ORC_OVERLORD, MAKUM_BUGBEAR_THUG, REVENANT_OF_TANTOS_CHIEF);
++	}
++	
++	@Override
++	public String onAdvEvent(String event, L2Npc npc, L2PcInstance player)
++	{
++		String htmltext = event;
++		QuestState st = player.getQuestState(qn);
++		if (st == null)
++			return htmltext;
++		
++		// VOKIAN
++		if (event.equalsIgnoreCase("30514-05a.htm"))
++		{
++			st.setState(STATE_STARTED);
++			st.set("cond", "1");
++			st.playSound(QuestState.SOUND_ACCEPT);
++			st.giveItems(VOKIAN_ORDER_1, 1);
++			st.giveItems(DIMENSIONAL_DIAMOND, 109);
++		}
++		// CHIANTA
++		else if (event.equalsIgnoreCase("30642-03.htm"))
++		{
++			st.set("cond", "4");
++			st.playSound(QuestState.SOUND_MIDDLE);
++			st.takeItems(VOKIAN_ORDER_2, 1);
++			st.giveItems(CHIANTA_ORDER_1, 1);
++		}
++		else if (event.equalsIgnoreCase("30642-07.htm"))
++		{
++			st.takeItems(CHIANTA_ORDER_1, 1);
++			st.takeItems(KASMAN_LETTER_1, 1);
++			st.takeItems(MANAKIA_LETTER_1, 1);
++			st.takeItems(MANAKIA_LETTER_2, 1);
++			st.takeItems(SCEPTER_OF_BREKA, 1);
++			st.takeItems(SCEPTER_OF_ENKU, 1);
++			st.takeItems(SCEPTER_OF_TUNATH, 1);
++			st.takeItems(SCEPTER_OF_TUREK, 1);
++			st.takeItems(SCEPTER_OF_VUKU, 1);
++			if (player.getLevel() >= 37)
++			{
++				st.set("cond", "6");
++				st.playSound(QuestState.SOUND_MIDDLE);
++				st.giveItems(CHIANTA_ORDER_3, 1);
++			}
++			else
++			{
++				htmltext = "30642-06.htm";
++				st.giveItems(CHIANTA_ORDER_2, 1);
++			}
++		}
++		// KASMAN
++		else if (event.equalsIgnoreCase("30501-02.htm") && !st.hasQuestItems(SCEPTER_OF_VUKU))
++		{
++			if (st.hasQuestItems(KASMAN_LETTER_1))
++				htmltext = "30501-04.htm";
++			else
++			{
++				htmltext = "30501-03.htm";
++				st.giveItems(KASMAN_LETTER_1, 1);
++			}
++			st.addRadar(-2150, 124443, -3724);
++		}
++		else if (event.equalsIgnoreCase("30501-05.htm") && !st.hasQuestItems(SCEPTER_OF_TUREK))
++		{
++			if (st.hasQuestItems(KASMAN_LETTER_2))
++				htmltext = "30501-07.htm";
++			else
++			{
++				htmltext = "30501-06.htm";
++				st.giveItems(KASMAN_LETTER_2, 1);
++			}
++			st.addRadar(-94294, 110818, -3563);
++		}
++		else if (event.equalsIgnoreCase("30501-08.htm") && !st.hasQuestItems(SCEPTER_OF_TUNATH))
++		{
++			if (st.hasQuestItems(KASMAN_LETTER_3))
++				htmltext = "30501-10.htm";
++			else
++			{
++				htmltext = "30501-09.htm";
++				st.giveItems(KASMAN_LETTER_3, 1);
++			}
++			st.addRadar(-55217, 200628, -3724);
++		}
++		// MANAKIA
++		else if (event.equalsIgnoreCase("30515-02.htm") && !st.hasQuestItems(SCEPTER_OF_BREKA))
++		{
++			if (st.hasQuestItems(MANAKIA_LETTER_1))
++				htmltext = "30515-04.htm";
++			else
++			{
++				htmltext = "30515-03.htm";
++				st.giveItems(MANAKIA_LETTER_1, 1);
++			}
++			st.addRadar(80100, 119991, -2264);
++		}
++		else if (event.equalsIgnoreCase("30515-05.htm") && !st.hasQuestItems(SCEPTER_OF_ENKU))
++		{
++			if (st.hasQuestItems(MANAKIA_LETTER_2))
++				htmltext = "30515-07.htm";
++			else
++			{
++				htmltext = "30515-06.htm";
++				st.giveItems(MANAKIA_LETTER_2, 1);
++			}
++			st.addRadar(19815, 189703, -3032);
++		}
++		// VOLTAR
++		else if (event.equalsIgnoreCase("30615-04.htm"))
++		{
++			st.takeItems(MANAKIA_LETTER_1, 1);
++			st.giveItems(GLOVE_OF_VOLTAR, 1);
++			if (!_sonsOfVoltar)
++			{
++				addSpawn(PASHIKA_SON_OF_VOLTAR, 80117, 120039, -2259, 0, false, 200000, true);
++				addSpawn(VULTUS_SON_OF_VOLTAR, 80058, 120038, -2259, 0, false, 200000, true);
++				_sonsOfVoltar = true;
++				
++				// Resets Sons Of Voltar
++				startQuestTimer("voltar_sons_cleanup", 201000, null, player, false);
++			}
++		}
++		// KEPRA
++		else if (event.equalsIgnoreCase("30616-05.htm"))
++		{
++			st.takeItems(MANAKIA_LETTER_2, 1);
++			st.giveItems(GLOVE_OF_KEPRA, 1);
++			if (!_enkuOrcOverlords)
++			{
++				addSpawn(ENKU_ORC_OVERLORD, 19894, 189743, -3074, 0, false, 200000, true);
++				addSpawn(ENKU_ORC_OVERLORD, 19869, 189800, -3059, 0, false, 200000, true);
++				addSpawn(ENKU_ORC_OVERLORD, 19818, 189818, -3047, 0, false, 200000, true);
++				addSpawn(ENKU_ORC_OVERLORD, 19753, 189837, -3027, 0, false, 200000, true);
++				_enkuOrcOverlords = true;
++				
++				// Resets Enku Orc Overlords
++				startQuestTimer("enku_orcs_cleanup", 201000, null, player, false);
++			}
++		}
++		// BURAI
++		else if (event.equalsIgnoreCase("30617-04.htm"))
++		{
++			st.takeItems(KASMAN_LETTER_2, 1);
++			st.giveItems(GLOVE_OF_BURAI, 1);
++			if (!_makumBugbearThugs)
++			{
++				addSpawn(MAKUM_BUGBEAR_THUG, -94292, 110781, -3701, 0, false, 200000, true);
++				addSpawn(MAKUM_BUGBEAR_THUG, -94293, 110861, -3701, 0, false, 200000, true);
++				_makumBugbearThugs = true;
++				
++				// Resets Makum Bugbear Thugs
++				startQuestTimer("makum_bugbears_cleanup", 201000, null, player, false);
++			}
++		}
++		// HARAK
++		else if (event.equalsIgnoreCase("30618-03.htm"))
++		{
++			st.takeItems(KASMAN_LETTER_3, 1);
++			st.giveItems(SCEPTER_OF_TUNATH, 1);
++			if (st.hasQuestItems(SCEPTER_OF_BREKA, SCEPTER_OF_ENKU, SCEPTER_OF_VUKU, SCEPTER_OF_TUREK))
++			{
++				st.set("cond", "5");
++				st.playSound(QuestState.SOUND_MIDDLE);
++			}
++		}
++		// DRIKO
++		else if (event.equalsIgnoreCase("30619-03.htm"))
++		{
++			st.takeItems(KASMAN_LETTER_1, 1);
++			st.giveItems(DRIKO_CONTRACT, 1);
++		}
++		// TANAPI
++		else if (event.equalsIgnoreCase("30571-03.htm"))
++		{
++			st.set("cond", "9");
++			st.playSound(QuestState.SOUND_MIDDLE);
++			st.takeItems(SCEPTER_BOX, 1);
++			st.giveItems(TANAPI_ORDER, 1);
++		}
++		// Clean ups
++		else if (event.equalsIgnoreCase("voltar_sons_cleanup"))
++		{
++			_sonsOfVoltar = false;
++			return null;
++		}
++		else if (event.equalsIgnoreCase("enku_orcs_cleanup"))
++		{
++			_enkuOrcOverlords = false;
++			return null;
++		}
++		else if (event.equalsIgnoreCase("makum_bugbears_cleanup"))
++		{
++			_makumBugbearThugs = false;
++			return null;
++		}
++		
++		return htmltext;
++	}
++	
++	@Override
++	public String onTalk(L2Npc npc, L2PcInstance player)
++	{
++		QuestState st = player.getQuestState(qn);
++		String htmltext = getNoQuestMsg();
++		if (st == null)
++			return htmltext;
++		
++		switch (st.getState())
++		{
++			case STATE_CREATED:
++				if (player.getRace() != Race.Orc)
++					htmltext = "30514-01.htm";
++				else if (player.getLevel() < 37)
++					htmltext = "30514-02.htm";
++				else if (player.getClassId().level() != 1)
++					htmltext = "30514-01a.htm";
++				else
++					htmltext = "30514-03.htm";
++				break;
++			
++			case STATE_STARTED:
++				final int cond = st.getInt("cond");
++				switch (npc.getNpcId())
++				{
++					case VOKIAN:
++						if (cond == 1)
++							htmltext = "30514-06.htm";
++						else if (cond == 2)
++						{
++							htmltext = "30514-08.htm";
++							st.set("cond", "3");
++							st.playSound(QuestState.SOUND_MIDDLE);
++							st.takeItems(GUARDIAN_BASILISK_FANG, 10);
++							st.takeItems(MANASHEN_SHARD, 10);
++							st.takeItems(TYRANT_TALON, 10);
++							st.takeItems(VOKIAN_ORDER_1, 1);
++							st.giveItems(NECKLACE_OF_AUTHORITY, 1);
++							st.giveItems(VOKIAN_ORDER_2, 1);
++						}
++						else if (cond == 3)
++							htmltext = "30514-09.htm";
++						else if (cond == 8)
++							htmltext = "30514-10.htm";
++						break;
++					
++					case CHIANTA:
++						if (cond == 3)
++							htmltext = "30642-01.htm";
++						else if (cond == 4)
++							htmltext = "30642-04.htm";
++						else if (cond == 5)
++						{
++							if (st.hasQuestItems(CHIANTA_ORDER_2))
++							{
++								if (player.getLevel() >= 37)
++								{
++									htmltext = "30642-09.htm";
++									st.set("cond", "6");
++									st.playSound(QuestState.SOUND_MIDDLE);
++									st.takeItems(CHIANTA_ORDER_2, 1);
++									st.giveItems(CHIANTA_ORDER_3, 1);
++								}
++								else
++									htmltext = "30642-08.htm";
++							}
++							else
++								htmltext = "30642-05.htm";
++						}
++						else if (cond == 6)
++							htmltext = "30642-10.htm";
++						else if (cond == 7)
++						{
++							htmltext = "30642-11.htm";
++							st.set("cond", "8");
++							st.playSound(QuestState.SOUND_MIDDLE);
++							st.takeItems(CHIANTA_ORDER_3, 1);
++							st.takeItems(NECKLACE_OF_AUTHORITY, 1);
++							st.takeItems(TAMLIN_ORC_SKULL, 20);
++							st.takeItems(TIMAK_ORC_HEAD, 20);
++							st.giveItems(SCEPTER_BOX, 1);
++						}
++						else if (cond == 8)
++							htmltext = "30642-12.htm";
++						else if (cond > 8)
++							htmltext = "30642-13.htm";
++						break;
++					
++					case KASMAN:
++						if (st.hasQuestItems(CHIANTA_ORDER_1))
++							htmltext = "30501-01.htm";
++						else if (cond > 4)
++							htmltext = "30501-11.htm";
++						break;
++					
++					case MANAKIA:
++						if (st.hasQuestItems(CHIANTA_ORDER_1))
++							htmltext = "30515-01.htm";
++						else if (cond > 4)
++							htmltext = "30515-08.htm";
++						break;
++					
++					case VOLTAR:
++						if (cond > 3)
++						{
++							if (st.hasQuestItems(MANAKIA_LETTER_1))
++							{
++								htmltext = "30615-02.htm";
++								st.removeRadar(80100, 119991, -2264);
++							}
++							else if (st.hasQuestItems(GLOVE_OF_VOLTAR))
++							{
++								htmltext = "30615-05.htm";
++								if (!_sonsOfVoltar)
++								{
++									addSpawn(PASHIKA_SON_OF_VOLTAR, 80117, 120039, -2259, 0, false, 200000, true);
++									addSpawn(VULTUS_SON_OF_VOLTAR, 80058, 120038, -2259, 0, false, 200000, true);
++									_sonsOfVoltar = true;
++									
++									// Resets Sons Of Voltar
++									startQuestTimer("voltar_sons_cleanup", 201000, null, player, false);
++								}
++							}
++							else if (st.hasQuestItems(PASHIKA_HEAD, VULTUS_HEAD))
++							{
++								htmltext = "30615-06.htm";
++								st.takeItems(PASHIKA_HEAD, 1);
++								st.takeItems(VULTUS_HEAD, 1);
++								st.giveItems(SCEPTER_OF_BREKA, 1);
++								if (st.hasQuestItems(SCEPTER_OF_ENKU, SCEPTER_OF_VUKU, SCEPTER_OF_TUREK, SCEPTER_OF_TUNATH))
++								{
++									st.set("cond", "5");
++									st.playSound(QuestState.SOUND_MIDDLE);
++								}
++							}
++							else if (st.hasQuestItems(SCEPTER_OF_BREKA))
++								htmltext = "30615-07.htm";
++							else if (st.hasQuestItems(CHIANTA_ORDER_1))
++								htmltext = "30615-01.htm";
++							else if (cond < 9)
++								htmltext = "30615-08.htm";
++						}
++						break;
++					
++					case KEPRA:
++						if (cond > 3)
++						{
++							if (st.hasQuestItems(MANAKIA_LETTER_2))
++							{
++								htmltext = "30616-02.htm";
++								st.removeRadar(19815, 189703, -3032);
++							}
++							else if (st.hasQuestItems(GLOVE_OF_KEPRA))
++							{
++								htmltext = "30616-05.htm";
++								if (!_enkuOrcOverlords)
++								{
++									addSpawn(ENKU_ORC_OVERLORD, 19894, 189743, -3074, 0, false, 200000, true);
++									addSpawn(ENKU_ORC_OVERLORD, 19869, 189800, -3059, 0, false, 200000, true);
++									addSpawn(ENKU_ORC_OVERLORD, 19818, 189818, -3047, 0, false, 200000, true);
++									addSpawn(ENKU_ORC_OVERLORD, 19753, 189837, -3027, 0, false, 200000, true);
++									_enkuOrcOverlords = true;
++									
++									// Resets Enku Orc Overlords
++									startQuestTimer("enku_orcs_cleanup", 201000, null, player, false);
++								}
++							}
++							else if (st.getQuestItemsCount(ENKU_OVERLORD_HEAD) == 4)
++							{
++								htmltext = "30616-06.htm";
++								st.takeItems(ENKU_OVERLORD_HEAD, 4);
++								st.giveItems(SCEPTER_OF_ENKU, 1);
++								if (st.hasQuestItems(SCEPTER_OF_BREKA, SCEPTER_OF_VUKU, SCEPTER_OF_TUREK, SCEPTER_OF_TUNATH))
++								{
++									st.set("cond", "5");
++									st.playSound(QuestState.SOUND_MIDDLE);
++								}
++							}
++							else if (st.hasQuestItems(SCEPTER_OF_ENKU))
++								htmltext = "30616-07.htm";
++							else if (st.hasQuestItems(CHIANTA_ORDER_1))
++								htmltext = "30616-01.htm";
++							else if (cond < 9)
++								htmltext = "30616-08.htm";
++						}
++						break;
++					
++					case BURAI:
++						if (cond > 3)
++						{
++							if (st.hasQuestItems(KASMAN_LETTER_2))
++							{
++								htmltext = "30617-02.htm";
++								st.removeRadar(-94294, 110818, -3563);
++							}
++							else if (st.hasQuestItems(GLOVE_OF_BURAI))
++							{
++								htmltext = "30617-04.htm";
++								if (!_makumBugbearThugs)
++								{
++									addSpawn(MAKUM_BUGBEAR_THUG, -94292, 110781, -3701, 0, false, 200000, true);
++									addSpawn(MAKUM_BUGBEAR_THUG, -94293, 110861, -3701, 0, false, 200000, true);
++									_makumBugbearThugs = true;
++									
++									// Resets Makum Bugbear Thugs
++									startQuestTimer("makum_bugbears_cleanup", 201000, null, player, false);
++								}
++							}
++							else if (st.getQuestItemsCount(MAKUM_BUGBEAR_HEAD) == 2)
++							{
++								htmltext = "30617-05.htm";
++								st.takeItems(MAKUM_BUGBEAR_HEAD, 2);
++								st.giveItems(SCEPTER_OF_TUREK, 1);
++								if (st.hasQuestItems(SCEPTER_OF_BREKA, SCEPTER_OF_VUKU, SCEPTER_OF_ENKU, SCEPTER_OF_TUNATH))
++								{
++									st.set("cond", "5");
++									st.playSound(QuestState.SOUND_MIDDLE);
++								}
++							}
++							else if (st.hasQuestItems(SCEPTER_OF_TUREK))
++								htmltext = "30617-06.htm";
++							else if (st.hasQuestItems(CHIANTA_ORDER_1))
++								htmltext = "30617-01.htm";
++							else if (cond < 8)
++								htmltext = "30617-07.htm";
++						}
++						break;
++					
++					case HARAK:
++						if (cond > 3)
++						{
++							if (st.hasQuestItems(KASMAN_LETTER_3))
++							{
++								htmltext = "30618-02.htm";
++								st.removeRadar(-55217, 200628, -3724);
++							}
++							else if (st.hasQuestItems(SCEPTER_OF_TUNATH))
++								htmltext = "30618-04.htm";
++							else if (st.hasQuestItems(CHIANTA_ORDER_1))
++								htmltext = "30618-01.htm";
++							else if (cond < 9)
++								htmltext = "30618-05.htm";
++						}
++						break;
++					
++					case DRIKO:
++						if (cond > 3)
++						{
++							if (st.hasQuestItems(KASMAN_LETTER_1))
++							{
++								htmltext = "30619-02.htm";
++								st.removeRadar(-2150, 124443, -3724);
++							}
++							else if (st.hasQuestItems(DRIKO_CONTRACT))
++							{
++								if (st.getQuestItemsCount(STAKATO_DRONE_HUSK) == 30)
++								{
++									htmltext = "30619-05.htm";
++									st.takeItems(DRIKO_CONTRACT, 1);
++									st.takeItems(STAKATO_DRONE_HUSK, 30);
++									st.giveItems(SCEPTER_OF_VUKU, 1);
++									if (st.hasQuestItems(SCEPTER_OF_BREKA, SCEPTER_OF_TUREK, SCEPTER_OF_ENKU, SCEPTER_OF_TUNATH))
++									{
++										st.set("cond", "5");
++										st.playSound(QuestState.SOUND_MIDDLE);
++									}
++								}
++								else
++									htmltext = "30619-04.htm";
++							}
++							else if (st.hasQuestItems(SCEPTER_OF_VUKU))
++								htmltext = "30619-06.htm";
++							else if (st.hasQuestItems(CHIANTA_ORDER_1))
++								htmltext = "30619-01.htm";
++							else if (cond < 8)
++								htmltext = "30619-07.htm";
++						}
++						break;
++					
++					case TANAPI:
++						if (cond == 8)
++							htmltext = "30571-01.htm";
++						else if (cond == 9)
++							htmltext = "30571-04.htm";
++						else if (cond == 10)
++						{
++							htmltext = "30571-05.htm";
++							st.set("cond", "11");
++							st.playSound(QuestState.SOUND_MIDDLE);
++							st.takeItems(SCEPTER_OF_TANTOS, 1);
++							st.takeItems(TANAPI_ORDER, 1);
++							st.giveItems(RITUAL_BOX, 1);
++						}
++						else if (cond == 11)
++							htmltext = "30571-06.htm";
++						break;
++					
++					case KAKAI:
++						if (cond > 7 && cond < 11)
++							htmltext = "30565-01.htm";
++						else if (cond == 11)
++						{
++							htmltext = "30565-02.htm";
++							st.takeItems(RITUAL_BOX, 1);
++							st.giveItems(MARK_OF_GLORY, 1);
++							st.rewardExpAndSp(91457, 2500);
++							player.broadcastPacket(new SocialAction(player, 3));
++							st.playSound(QuestState.SOUND_FINISH);
++							st.exitQuest(false);
++						}
++						break;
++				}
++				break;
++			
++			case STATE_COMPLETED:
++				htmltext = getAlreadyCompletedMsg();
++				break;
++		}
++		
++		return htmltext;
++	}
++	
++	@Override
++	public String onAttack(L2Npc npc, L2PcInstance attacker, int damage, boolean isPet)
++	{
++		QuestState st = checkPlayerState(attacker, npc, STATE_STARTED);
++		if (st == null)
++			return null;
++		
++		final int cond = st.getInt("cond");
++		
++		switch (npc.getNpcId())
++		{
++			case RAGNA_ORC_OVERLORD:
++			case RAGNA_ORC_SEER:
++				if (cond == 9 && npc.isScriptValue(0))
++				{
++					npc.broadcastNpcSay("Is it a lackey of Kakai?!");
++					npc.setScriptValue(1);
++				}
++				break;
++				
++			case REVENANT_OF_TANTOS_CHIEF:
++				if (cond == 9)
++				{
++					if (npc.isScriptValue(0))
++					{
++						npc.broadcastNpcSay("How regretful! Unjust dishonor!");
++						npc.setScriptValue(1);
++					}
++					else if (npc.isScriptValue(1) && npc.getCurrentHp() / npc.getMaxHp() < 0.33)
++					{
++						npc.broadcastNpcSay("Indignant and unfair death!");
++						npc.setScriptValue(2);
++					}
++				}
++				break;
++		}
++		
++		return null;
++	}
++	
++	@Override
++	public String onKill(L2Npc npc, L2PcInstance player, boolean isPet)
++	{
++		QuestState st = checkPlayerState(player, npc, STATE_STARTED);
++		if (st == null)
++			return null;
++		
++		final int cond = st.getInt("cond");
++		
++		switch (npc.getNpcId())
++		{
++			case TYRANT:
++				if (cond == 1 && st.dropItems(TYRANT_TALON, 1, 10, 500000) && st.getQuestItemsCount(GUARDIAN_BASILISK_FANG) + st.getQuestItemsCount(MANASHEN_SHARD) == 20)
++					st.set("cond", "2");
++				break;
++				
++			case GUARDIAN_BASILISK:
++				if (cond == 1 && st.dropItems(GUARDIAN_BASILISK_FANG, 1, 10, 500000) && st.getQuestItemsCount(TYRANT_TALON) + st.getQuestItemsCount(MANASHEN_SHARD) == 20)
++					st.set("cond", "2");
++				break;
++				
++			case MANASHEN_GARGOYLE:
++				if (cond == 1 && st.dropItems(MANASHEN_SHARD, 1, 10, 750000) && st.getQuestItemsCount(TYRANT_TALON) + st.getQuestItemsCount(GUARDIAN_BASILISK_FANG) == 20)
++					st.set("cond", "2");
++				break;
++				
++			case MARSH_STAKATO_DRONE:
++				if (st.hasQuestItems(DRIKO_CONTRACT))
++					st.dropItems(STAKATO_DRONE_HUSK, 1, 30, 750000);
++				break;
++				
++			case PASHIKA_SON_OF_VOLTAR:
++				if (st.hasQuestItems(GLOVE_OF_VOLTAR) && !st.hasQuestItems(PASHIKA_HEAD))
++				{
++					st.giveItems(PASHIKA_HEAD, 1);
++					if (st.hasQuestItems(VULTUS_HEAD))
++					{
++						st.playSound(QuestState.SOUND_MIDDLE);
++						st.takeItems(GLOVE_OF_VOLTAR, 1);
++					}
++					else
++						st.playSound(QuestState.SOUND_ITEMGET);
++				}
++				break;
++				
++			case VULTUS_SON_OF_VOLTAR:
++				if (st.hasQuestItems(GLOVE_OF_VOLTAR) && !st.hasQuestItems(VULTUS_HEAD))
++				{
++					st.giveItems(VULTUS_HEAD, 1);
++					if (st.hasQuestItems(PASHIKA_HEAD))
++					{
++						st.playSound(QuestState.SOUND_MIDDLE);
++						st.takeItems(GLOVE_OF_VOLTAR, 1);
++					}
++					else
++						st.playSound(QuestState.SOUND_ITEMGET);
++				}
++				break;
++				
++			case ENKU_ORC_OVERLORD:
++				if (st.hasQuestItems(GLOVE_OF_KEPRA) && st.dropItemsAlways(ENKU_OVERLORD_HEAD, 1, 4))
++					st.takeItems(GLOVE_OF_KEPRA, 1);
++				break;
++				
++			case MAKUM_BUGBEAR_THUG:
++				if (st.hasQuestItems(GLOVE_OF_BURAI) && st.dropItemsAlways(MAKUM_BUGBEAR_HEAD, 1, 2))
++					st.takeItems(GLOVE_OF_BURAI, 1);
++				break;
++				
++			case TIMAK_ORC:
++			case TIMAK_ORC_ARCHER:
++			case TIMAK_ORC_SOLDIER:
++			case TIMAK_ORC_WARRIOR:
++			case TIMAK_ORC_SHAMAN:
++			case TIMAK_ORC_OVERLORD:
++				if (cond == 6 && st.dropItems(TIMAK_ORC_HEAD, 1, 20, 500000 + ((npc.getNpcId() - 20583) * 100000)) && st.getQuestItemsCount(TAMLIN_ORC_SKULL) == 20)
++					st.set("cond", "7");
++				break;
++				
++			case TAMLIN_ORC:
++				if (cond == 6 && st.dropItems(TAMLIN_ORC_SKULL, 1, 20, 500000) && st.getQuestItemsCount(TIMAK_ORC_HEAD) == 20)
++					st.set("cond", "7");
++				break;
++				
++			case TAMLIN_ORC_ARCHER:
++				if (cond == 6 && st.dropItems(TAMLIN_ORC_SKULL, 1, 20, 600000) && st.getQuestItemsCount(TIMAK_ORC_HEAD) == 20)
++					st.set("cond", "7");
++				break;
++				
++			case RAGNA_ORC_OVERLORD:
++			case RAGNA_ORC_SEER:
++				if (cond == 9)
++				{
++					npc.broadcastNpcSay("Too late!");
++					addSpawn(REVENANT_OF_TANTOS_CHIEF, npc, true, 200000, true);
++				}
++				break;
++				
++			case REVENANT_OF_TANTOS_CHIEF:
++				if (cond == 9 && st.dropItemsAlways(SCEPTER_OF_TANTOS, 1, 1))
++				{
++					st.set("cond", "10");
++					npc.broadcastNpcSay("I'll get revenge someday!!");
++				}
++				break;
++		}
++		
++		return null;
++	}
++	
++	public static void main(String[] args)
++	{
++		new Q220_TestimonyOfGlory();
++	}
++}
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30618-01.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30618-01.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30618-01.htm	(revision 343)
+@@ -0,0 +1,5 @@
++<html><body>Tunath Chief Harak:<br>
++I have been waiting for the messenger of the Flame Lord.<br>
++Kasman, the Chief of Gludin, told me that I shall soon be visited by the messenger of the Monarch!<br>
++Could it be you? I don't believe it. <font color="LEVEL">Unless you show me a handwritten letter from the Lord...</font>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30618-02.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30618-02.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30618-02.htm	(revision 343)
+@@ -0,0 +1,5 @@
++<html><body>Tunath Chief Harak:<br>
++Thank you for coming such a long way, messenger of the Lord of Flame.<br>
++We, the Tunath tribe were sent here 500 years ago to conquer Talking Island when war broke out with the Humans. When the army retreated to the north we were trapped here. We have always maintained our loyalty to the Lord of Flame. The Elven School of Wizardry on this island was ruined and its legacy turned into ashes. Even to this day, we warriors of the Tunath tribe guard against another possible invasion by the Humans.<br>
++<a action="bypass -h Quest Q220_TestimonyOfGlory 30618-03.htm">"I am here to collect your Oath of Loyalty and the Scepter of Flame."</a>
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30618-03.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30618-03.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30618-03.htm	(revision 343)
+@@ -0,0 +1,4 @@
++<html><body>Tunath Chief Harak:<br>
++We have been waiting for hundreds of years for the return of our King. We knew that one day the Humans would be vanquished. I have waited all of my life to return the scepter of flame which I inherited from my father. When I heard that the messenger of the Monarch had come to Gludio, I risked my life crossing the sea to meet you. Through all the fierce attacks of the lizard tribe, we have been waiting for you -- the messenger of the Monarch.<br>
++Take this scepter to the king.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30618-04.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30618-04.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30618-04.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Tunath Chief Harak:<br>
++Please give the 500 year old Scepter of Tunath to <font color="LEVEL">Flame Lord Kakai</font>!
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30618-05.htm
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30618-05.htm	(revision 343)
++++ /trunk/aCis_datapack/data/scripts/quests/Q220_TestimonyOfGlory/30618-05.htm	(revision 343)
+@@ -0,0 +1,3 @@
++<html><body>Tunath Chief Harak:<br>
++Please go and deliver the Scepter of Tunath to Lord Pa'agrio! We, the Tunaths, are dedicated to the reconstruction of the great kingdom of oak and will do our part to see it done.
++</body></html>
+Index: /trunk/aCis_datapack/data/scripts/ai/group/SummonMinions.java
+===================================================================
+--- /trunk/aCis_datapack/data/scripts/ai/group/SummonMinions.java	(revision 342)
++++ /trunk/aCis_datapack/data/scripts/ai/group/SummonMinions.java	(revision 343)
+@@ -74,5 +74,5 @@
+ 				for (int val : MINIONS.get(npcId))
+ 				{
+-					L2Attackable newNpc = (L2Attackable) addSpawn(val, npc.getX() + Rnd.get(-150, 150), npc.getY() + Rnd.get(-150, 150), npc.getZ(), 0, false, 0, false);
++					L2Attackable newNpc = (L2Attackable) addSpawn(val, npc, true, 0, false);
+ 					attack(newNpc, attacker);
+ 				}
+@@ -81,5 +81,5 @@
+ 			{
+ 				for (int val : MINIONS.get(npcId))
+-					addSpawn(val, (npc.getX() + Rnd.get(-100, 100)), (npc.getY() + Rnd.get(-100, 100)), npc.getZ(), 0, false, 0, false);
++					addSpawn(val, npc, true, 0, false);
+ 				
+ 				npc.broadcastNpcSay(ORCS_WORDS[Rnd.get(ORCS_WORDS.length)]);

@@ -1,0 +1,1850 @@
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/util/DeadLockDetector.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/util/DeadLockDetector.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/util/DeadLockDetector.java	(revision 340)
+@@ -23,6 +23,6 @@
+ 
+ import net.sf.l2j.Config;
+-import net.sf.l2j.gameserver.Announcements;
+ import net.sf.l2j.gameserver.Shutdown;
++import net.sf.l2j.gameserver.util.Broadcast;
+ 
+ /**
+@@ -101,5 +101,5 @@
+ 					if (Config.RESTART_ON_DEADLOCK)
+ 					{
+-						Announcements.announceToAll("Server has stability issues - restarting now.");
++						Broadcast.announceToOnlinePlayers("Server has stability issues - restarting now.");
+ 						Shutdown.getInstance().startShutdown(null, "DeadLockDetector - Auto Restart", 60, true);
+ 					}
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/Say2.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/Say2.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/Say2.java	(revision 340)
+@@ -50,4 +50,5 @@
+ 	public final static int PARTYROOM_ALL = 16; // (Red)
+ 	public final static int HERO_VOICE = 17;
++	public final static int CRITICAL_ANNOUNCE = 18;
+ 	
+ 	private final static String[] CHAT_NAMES =
+@@ -70,5 +71,6 @@
+ 		"PARTYROOM_COMMANDER",
+ 		"PARTYROOM_ALL",
+-		"HERO_VOICE"
++		"HERO_VOICE",
++		"CRITICAL_ANNOUNCEMENT"
+ 	};
+ 	
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestSetAllyCrest.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestSetAllyCrest.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestSetAllyCrest.java	(revision 340)
+@@ -73,5 +73,5 @@
+ 				newId = IdFactory.getInstance().getNextId();
+ 			
+-			if (!remove && !CrestCache.saveCrest(CrestType.ALLY, newId, _data))
++			if (!remove && !CrestCache.getInstance().saveCrest(CrestType.ALLY, newId, _data))
+ 			{
+ 				_log.log(Level.INFO, "Error saving crest for ally " + leaderclan.getAllyName() + " [" + leaderclan.getAllyId() + "]");
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/EnterWorld.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/EnterWorld.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/EnterWorld.java	(revision 340)
+@@ -16,7 +16,7 @@
+ 
+ import net.sf.l2j.Config;
+-import net.sf.l2j.gameserver.Announcements;
+ import net.sf.l2j.gameserver.communitybbs.Manager.MailBBSManager;
+ import net.sf.l2j.gameserver.datatables.AdminCommandAccessRights;
++import net.sf.l2j.gameserver.datatables.AnnouncementTable;
+ import net.sf.l2j.gameserver.datatables.GmListTable;
+ import net.sf.l2j.gameserver.datatables.MapRegionTable;
+@@ -173,5 +173,5 @@
+ 		activeChar.sendPacket(SystemMessageId.WELCOME_TO_LINEAGE);
+ 		SevenSigns.getInstance().sendCurrentPeriodMsg(activeChar);
+-		Announcements.getInstance().showAnnouncements(activeChar);
++		AnnouncementTable.getInstance().showAnnouncements(activeChar);
+ 		
+ 		// if player is DE, check for shadow sense skill at night
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestSetPledgeCrest.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestSetPledgeCrest.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestSetPledgeCrest.java	(revision 340)
+@@ -91,5 +91,5 @@
+ 				
+ 				crestId = IdFactory.getInstance().getNextId();
+-				if (!CrestCache.saveCrest(CrestType.PLEDGE, crestId, _data))
++				if (!CrestCache.getInstance().saveCrest(CrestType.PLEDGE, crestId, _data))
+ 				{
+ 					_log.log(Level.INFO, "Error saving crest for clan " + clan.getName() + " [" + clan.getClanId() + "]");
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestAllyCrest.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestAllyCrest.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestAllyCrest.java	(revision 340)
+@@ -32,5 +32,5 @@
+ 	protected void runImpl()
+ 	{
+-		byte[] data = CrestCache.getCrest(CrestType.ALLY, _crestId);
++		byte[] data = CrestCache.getInstance().getCrest(CrestType.ALLY, _crestId);
+ 		if (data != null)
+ 			sendPacket(new AllyCrest(_crestId, data));
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestExPledgeCrestLarge.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestExPledgeCrestLarge.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestExPledgeCrestLarge.java	(revision 340)
+@@ -36,5 +36,5 @@
+ 	protected void runImpl()
+ 	{
+-		byte[] data = CrestCache.getCrest(CrestType.PLEDGE_LARGE, _crestId);
++		byte[] data = CrestCache.getInstance().getCrest(CrestType.PLEDGE_LARGE, _crestId);
+ 		if (data != null)
+ 			sendPacket(new ExPledgeCrestLarge(_crestId, data));
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestExSetPledgeCrestLarge.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestExSetPledgeCrestLarge.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/clientpackets/RequestExSetPledgeCrestLarge.java	(revision 340)
+@@ -86,5 +86,5 @@
+ 				
+ 				crestLargeId = IdFactory.getInstance().getNextId();
+-				if (!CrestCache.saveCrest(CrestType.PLEDGE_LARGE, crestLargeId, _data))
++				if (!CrestCache.getInstance().saveCrest(CrestType.PLEDGE_LARGE, crestLargeId, _data))
+ 				{
+ 					_log.log(Level.INFO, "Error saving large crest for clan " + clan.getName() + " [" + clan.getClanId() + "]");
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/serverpackets/PledgeCrest.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/serverpackets/PledgeCrest.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/network/serverpackets/PledgeCrest.java	(revision 340)
+@@ -26,5 +26,5 @@
+ 	{
+ 		_crestId = crestId;
+-		_data = CrestCache.getCrest(CrestType.PLEDGE, _crestId);
++		_data = CrestCache.getInstance().getCrest(CrestType.PLEDGE, _crestId);
+ 	}
+ 	
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/Shutdown.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/Shutdown.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/Shutdown.java	(revision 340)
+@@ -315,5 +315,5 @@
+ 			_counterInstance._abort();
+ 			
+-			Announcements.announceToAll("Server aborts " + MODE_TEXT[_shutdownMode] + " and continues normal operation.");
++			Broadcast.announceToOnlinePlayers("Server aborts " + MODE_TEXT[_shutdownMode] + " and continues normal operation.");
+ 		}
+ 	}
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/instancemanager/RaidBossSpawnManager.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/instancemanager/RaidBossSpawnManager.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/instancemanager/RaidBossSpawnManager.java	(revision 340)
+@@ -309,9 +309,9 @@
+ 		{
+ 			PreparedStatement statement = con.prepareStatement("UPDATE raidboss_spawnlist SET respawn_time = ?, currentHP = ?, currentMP = ? WHERE boss_id = ?");
+-
++			
+ 			for (Map.Entry<Integer, StatsSet> infoEntry : _storedInfo.entrySet())
+ 			{
+ 				final int bossId = infoEntry.getKey();
+-
++				
+ 				final L2RaidBossInstance boss = _bosses.get(bossId);
+ 				if (boss == null)
+@@ -324,5 +324,5 @@
+ 				if (info == null)
+ 					continue;
+-
++				
+ 				statement.setLong(1, info.getLong("respawnTime"));
+ 				statement.setDouble(2, info.getDouble("currentHP"));
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/instancemanager/DayNightSpawnManager.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/instancemanager/DayNightSpawnManager.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/instancemanager/DayNightSpawnManager.java	(revision 340)
+@@ -213,5 +213,5 @@
+ 				_log.info("DayNightSpawnManager: Deleting Hellman raidboss");
+ 				break;
+-
++			
+ 			case 1:
+ 				boss.spawnMe();
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/instancemanager/games/Lottery.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/instancemanager/games/Lottery.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/instancemanager/games/Lottery.java	(revision 340)
+@@ -25,9 +25,9 @@
+ import net.sf.l2j.Config;
+ import net.sf.l2j.L2DatabaseFactory;
+-import net.sf.l2j.gameserver.Announcements;
+ import net.sf.l2j.gameserver.ThreadPoolManager;
+ import net.sf.l2j.gameserver.model.item.instance.ItemInstance;
+ import net.sf.l2j.gameserver.network.SystemMessageId;
+ import net.sf.l2j.gameserver.network.serverpackets.SystemMessage;
++import net.sf.l2j.gameserver.util.Broadcast;
+ import net.sf.l2j.util.Rnd;
+ 
+@@ -179,5 +179,5 @@
+ 			_isStarted = true;
+ 			
+-			Announcements.announceToAll("Lottery tickets are now available for Lucky Lottery #" + getId() + ".");
++			Broadcast.announceToOnlinePlayers("Lottery tickets are now available for Lucky Lottery #" + getId() + ".");
+ 			Calendar finishtime = Calendar.getInstance();
+ 			finishtime.setTimeInMillis(_enddate);
+@@ -233,5 +233,5 @@
+ 			_isSellingTickets = false;
+ 			
+-			Announcements.announceToAll(SystemMessage.getSystemMessage(SystemMessageId.LOTTERY_TICKET_SALES_TEMP_SUSPENDED));
++			Broadcast.toAllOnlinePlayers(SystemMessage.getSystemMessage(SystemMessageId.LOTTERY_TICKET_SALES_TEMP_SUSPENDED));
+ 		}
+ 	}
+@@ -368,8 +368,8 @@
+ 			
+ 			if (count1 > 0) // There are winners.
+-				Announcements.announceToAll(SystemMessage.getSystemMessage(SystemMessageId.AMOUNT_FOR_WINNER_S1_IS_S2_ADENA_WE_HAVE_S3_PRIZE_WINNER).addNumber(getId()).addNumber(getPrize()).addNumber(count1));
++				Broadcast.toAllOnlinePlayers(SystemMessage.getSystemMessage(SystemMessageId.AMOUNT_FOR_WINNER_S1_IS_S2_ADENA_WE_HAVE_S3_PRIZE_WINNER).addNumber(getId()).addNumber(getPrize()).addNumber(count1));
+ 			else
+ 				// There are no winners.
+-				Announcements.announceToAll(SystemMessage.getSystemMessage(SystemMessageId.AMOUNT_FOR_LOTTERY_S1_IS_S2_ADENA_NO_WINNER).addNumber(getId()).addNumber(getPrize()));
++				Broadcast.toAllOnlinePlayers(SystemMessage.getSystemMessage(SystemMessageId.AMOUNT_FOR_LOTTERY_S1_IS_S2_ADENA_NO_WINNER).addNumber(getId()).addNumber(getPrize()));
+ 			
+ 			try (Connection con = L2DatabaseFactory.getInstance().getConnection())
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/instancemanager/AutoSpawnManager.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/instancemanager/AutoSpawnManager.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/instancemanager/AutoSpawnManager.java	(revision 340)
+@@ -29,5 +29,4 @@
+ 
+ import net.sf.l2j.L2DatabaseFactory;
+-import net.sf.l2j.gameserver.Announcements;
+ import net.sf.l2j.gameserver.ThreadPoolManager;
+ import net.sf.l2j.gameserver.datatables.MapRegionTable;
+@@ -39,4 +38,5 @@
+ import net.sf.l2j.gameserver.model.actor.L2Npc;
+ import net.sf.l2j.gameserver.model.actor.template.NpcTemplate;
++import net.sf.l2j.gameserver.util.Broadcast;
+ import net.sf.l2j.util.Rnd;
+ 
+@@ -434,5 +434,5 @@
+ 				// Announce to all players that the spawn has taken place, with the nearest town location.
+ 				if (npcInst != null && spawnInst.isBroadcasting())
+-					Announcements.announceToAll("The " + npcInst.getName() + " has spawned near " + MapRegionTable.getInstance().getClosestTownName(npcInst.getX(), npcInst.getY()) + "!");
++					Broadcast.announceToOnlinePlayers("The " + npcInst.getName() + " has spawned near " + MapRegionTable.getInstance().getClosestTownName(npcInst.getX(), npcInst.getY()) + "!");
+ 				
+ 				// If there is no despawn time, do not create a despawn task.
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/L2Clan.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/L2Clan.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/L2Clan.java	(revision 340)
+@@ -2087,5 +2087,5 @@
+ 	{
+ 		if (crestId == 0)
+-			CrestCache.removeCrest(CrestType.PLEDGE, _crestId);
++			CrestCache.getInstance().removeCrest(CrestType.PLEDGE, _crestId);
+ 		
+ 		_crestId = crestId;
+@@ -2120,5 +2120,5 @@
+ 		{
+ 			if (crestId == 0)
+-				CrestCache.removeCrest(CrestType.ALLY, _allyCrestId);
++				CrestCache.getInstance().removeCrest(CrestType.ALLY, _allyCrestId);
+ 			
+ 			sqlStatement = "UPDATE clan_data SET ally_crest_id = ? WHERE ally_id = ?";
+@@ -2166,5 +2166,5 @@
+ 	{
+ 		if (crestId == 0)
+-			CrestCache.removeCrest(CrestType.PLEDGE_LARGE, _crestLargeId);
++			CrestCache.getInstance().removeCrest(CrestType.PLEDGE_LARGE, _crestLargeId);
+ 		
+ 		_crestLargeId = crestId;
+@@ -2191,5 +2191,5 @@
+ 		if (_crestId != 0)
+ 		{
+-			if (CrestCache.getCrest(CrestType.PLEDGE, _crestId) == null)
++			if (CrestCache.getInstance().getCrest(CrestType.PLEDGE, _crestId) == null)
+ 			{
+ 				_log.log(Level.INFO, "Removing non-existent crest for clan " + _name + " [" + _clanId + "], crestId:" + _crestId);
+@@ -2200,5 +2200,5 @@
+ 		if (_crestLargeId != 0)
+ 		{
+-			if (CrestCache.getCrest(CrestType.PLEDGE_LARGE, _crestLargeId) == null)
++			if (CrestCache.getInstance().getCrest(CrestType.PLEDGE_LARGE, _crestLargeId) == null)
+ 			{
+ 				_log.log(Level.INFO, "Removing non-existent large crest for clan " + _name + " [" + _clanId + "], crestLargeId:" + _crestLargeId);
+@@ -2209,5 +2209,5 @@
+ 		if (_allyCrestId != 0)
+ 		{
+-			if (CrestCache.getCrest(CrestType.ALLY, _allyCrestId) == null)
++			if (CrestCache.getInstance().getCrest(CrestType.ALLY, _allyCrestId) == null)
+ 			{
+ 				_log.log(Level.INFO, "Removing non-existent ally crest for clan " + _name + " [" + _clanId + "], allyCrestId:" + _allyCrestId);
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/instance/L2WeddingManagerInstance.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/instance/L2WeddingManagerInstance.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/instance/L2WeddingManagerInstance.java	(revision 340)
+@@ -18,5 +18,4 @@
+ 
+ import net.sf.l2j.Config;
+-import net.sf.l2j.gameserver.Announcements;
+ import net.sf.l2j.gameserver.ai.CtrlIntention;
+ import net.sf.l2j.gameserver.datatables.SkillTable.FrequentSkill;
+@@ -34,4 +33,5 @@
+ import net.sf.l2j.gameserver.network.serverpackets.MoveToPawn;
+ import net.sf.l2j.gameserver.network.serverpackets.NpcHtmlMessage;
++import net.sf.l2j.gameserver.util.Broadcast;
+ 
+ /**
+@@ -251,5 +251,5 @@
+ 		ptarget.doCast(skill);
+ 		
+-		Announcements.announceToAll("Congratulations to " + player.getName() + " and " + ptarget.getName() + "! They have been married.");
++		Broadcast.announceToOnlinePlayers("Congratulations to " + player.getName() + " and " + ptarget.getName() + "! They have been married.");
+ 	}
+ 	
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/instance/L2PcInstance.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/instance/L2PcInstance.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/instance/L2PcInstance.java	(revision 340)
+@@ -3254,5 +3254,5 @@
+ 		if (player.isGM())
+ 			AdminEditChar.showCharacterInfo(player, this);
+-
++		
+ 		super.onActionShift(player);
+ 	}
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/Announcement.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/Announcement.java	(revision 340)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/Announcement.java	(revision 340)
+@@ -0,0 +1,123 @@
++/*
++ * This program is free software: you can redistribute it and/or modify it under
++ * the terms of the GNU General Public License as published by the Free Software
++ * Foundation, either version 3 of the License, or (at your option) any later
++ * version.
++ *
++ * This program is distributed in the hope that it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
++ * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
++ * details.
++ *
++ * You should have received a copy of the GNU General Public License along with
++ * this program. If not, see <http://www.gnu.org/licenses/>.
++ */
++package net.sf.l2j.gameserver.model;
++
++import java.util.concurrent.ScheduledFuture;
++
++import net.sf.l2j.gameserver.ThreadPoolManager;
++import net.sf.l2j.gameserver.util.Broadcast;
++
++/**
++ * Model of an announcement
++ * @see net.sf.l2j.gameserver.datatables.AnnouncementTable
++ * @author Sikken, Tryskell
++ */
++public class Announcement implements Runnable
++{
++	protected final String _message;
++	
++	protected boolean _critical = false;
++	protected boolean _auto = false;
++	protected boolean _unlimited = false;
++	
++	protected int _initialDelay;
++	protected int _delay;
++	protected int _limit;
++	
++	protected ScheduledFuture<?> _task = null;
++	
++	public Announcement(String message, boolean critical)
++	{
++		_message = message;
++		_critical = critical;
++	}
++	
++	public Announcement(String message, boolean critical, boolean auto, int initialDelay, int delay, int limit)
++	{
++		_message = message;
++		_critical = critical;
++		_auto = auto;
++		_initialDelay = initialDelay;
++		_delay = delay;
++		_limit = limit;
++		
++		if (_auto)
++		{
++			switch (_limit)
++			{
++				case 0: // unlimited
++					_task = ThreadPoolManager.getInstance().scheduleGeneralAtFixedRate(this, _initialDelay * 1000, _delay * 1000); // self schedule at fixed rate
++					_unlimited = true;
++					break;
++				
++				default:
++					_task = ThreadPoolManager.getInstance().scheduleGeneral(this, _initialDelay * 1000); // self schedule (initial)
++					break;
++			}
++		}
++	}
++	
++	@Override
++	public void run()
++	{
++		if (!_unlimited)
++		{
++			Broadcast.announceToOnlinePlayers(_message, _critical);
++			_task = ThreadPoolManager.getInstance().scheduleGeneral(this, _delay * 1000); // self schedule (worker)
++			_limit--;
++		}
++		else
++			Broadcast.announceToOnlinePlayers(_message, _critical);
++	}
++	
++	public String getMessage()
++	{
++		return _message;
++	}
++	
++	public boolean isCritical()
++	{
++		return _critical;
++	}
++	
++	public boolean isAuto()
++	{
++		return _auto;
++	}
++	
++	public int getInitialDelay()
++	{
++		return _initialDelay;
++	}
++	
++	public int getDelay()
++	{
++		return _delay;
++	}
++	
++	public int getLimit()
++	{
++		return _limit;
++	}
++	
++	public void stopDaemon()
++	{
++		if (_task != null)
++		{
++			_task.cancel(true);
++			_task = null;
++		}
++	}
++}
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/olympiad/Olympiad.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/olympiad/Olympiad.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/model/olympiad/Olympiad.java	(revision 340)
+@@ -34,5 +34,4 @@
+ import net.sf.l2j.Config;
+ import net.sf.l2j.L2DatabaseFactory;
+-import net.sf.l2j.gameserver.Announcements;
+ import net.sf.l2j.gameserver.ThreadPoolManager;
+ import net.sf.l2j.gameserver.instancemanager.ZoneManager;
+@@ -43,4 +42,5 @@
+ import net.sf.l2j.gameserver.network.serverpackets.SystemMessage;
+ import net.sf.l2j.gameserver.templates.StatsSet;
++import net.sf.l2j.gameserver.util.Broadcast;
+ 
+ public class Olympiad
+@@ -316,5 +316,5 @@
+ 		public void run()
+ 		{
+-			Announcements.announceToAll(SystemMessage.getSystemMessage(SystemMessageId.OLYMPIAD_PERIOD_S1_HAS_ENDED).addNumber(_currentCycle));
++			Broadcast.toAllOnlinePlayers(SystemMessage.getSystemMessage(SystemMessageId.OLYMPIAD_PERIOD_S1_HAS_ENDED).addNumber(_currentCycle));
+ 			
+ 			if (_scheduledWeeklyTask != null)
+@@ -390,5 +390,5 @@
+ 				_inCompPeriod = true;
+ 				
+-				Announcements.announceToAll(SystemMessage.getSystemMessage(SystemMessageId.THE_OLYMPIAD_GAME_HAS_STARTED));
++				Broadcast.toAllOnlinePlayers(SystemMessage.getSystemMessage(SystemMessageId.THE_OLYMPIAD_GAME_HAS_STARTED));
+ 				_log.info("Olympiad: Olympiad game started.");
+ 				
+@@ -405,5 +405,5 @@
+ 						public void run()
+ 						{
+-							Announcements.announceToAll(SystemMessage.getSystemMessage(SystemMessageId.OLYMPIAD_REGISTRATION_PERIOD_ENDED));
++							Broadcast.toAllOnlinePlayers(SystemMessage.getSystemMessage(SystemMessageId.OLYMPIAD_REGISTRATION_PERIOD_ENDED));
+ 						}
+ 					}, regEnd);
+@@ -419,5 +419,5 @@
+ 						
+ 						_inCompPeriod = false;
+-						Announcements.announceToAll(SystemMessage.getSystemMessage(SystemMessageId.THE_OLYMPIAD_GAME_HAS_ENDED));
++						Broadcast.toAllOnlinePlayers(SystemMessage.getSystemMessage(SystemMessageId.THE_OLYMPIAD_GAME_HAS_ENDED));
+ 						_log.info("Olympiad: Olympiad game ended.");
+ 						
+@@ -483,5 +483,5 @@
+ 	protected void setNewOlympiadEnd()
+ 	{
+-		Announcements.announceToAll(SystemMessage.getSystemMessage(SystemMessageId.OLYMPIAD_PERIOD_S1_HAS_STARTED).addNumber(_currentCycle));
++		Broadcast.toAllOnlinePlayers(SystemMessage.getSystemMessage(SystemMessageId.OLYMPIAD_PERIOD_S1_HAS_STARTED).addNumber(_currentCycle));
+ 		
+ 		Calendar currentTime = Calendar.getInstance();
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/cache/HtmCache.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/cache/HtmCache.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/cache/HtmCache.java	(revision 340)
+@@ -24,5 +24,4 @@
+ 
+ import net.sf.l2j.commons.io.UnicodeReader;
+-import net.sf.l2j.commons.io.filters.HtmFilter;
+ 
+ /**
+@@ -33,6 +32,6 @@
+ 	private static final Logger _log = Logger.getLogger(HtmCache.class.getName());
+ 	
+-	private static final Map<Integer, String> _htmCache = new HashMap<>();
+-	private static final FileFilter _htmFilter = new HtmFilter();
++	private final Map<Integer, String> _htmCache;
++	private final FileFilter _htmFilter;
+ 	
+ 	public static HtmCache getInstance()
+@@ -43,5 +42,6 @@
+ 	protected HtmCache()
+ 	{
+-		reload();
++		_htmCache = new HashMap<>();
++		_htmFilter = new HtmFilter();
+ 	}
+ 	
+@@ -52,4 +52,5 @@
+ 	{
+ 		_log.info("HtmCache: Cache cleared, had " + _htmCache.size() + " entries.");
++		
+ 		_htmCache.clear();
+ 	}
+@@ -69,5 +70,5 @@
+ 	 * @param dir : Directory to be parsed.
+ 	 */
+-	private static void parseDir(File dir)
++	private void parseDir(File dir)
+ 	{
+ 		for (File file : dir.listFiles(_htmFilter))
+@@ -85,29 +86,25 @@
+ 	 * @return String : Content of the file.
+ 	 */
+-	private static String loadFile(File file)
++	private String loadFile(File file)
+ 	{
+-		if (file.exists() && _htmFilter.accept(file) && !file.isDirectory())
++		try (FileInputStream fis = new FileInputStream(file); UnicodeReader ur = new UnicodeReader(fis, "UTF-8"); BufferedReader br = new BufferedReader(ur))
+ 		{
+-			try (FileInputStream fis = new FileInputStream(file); UnicodeReader ur = new UnicodeReader(fis, "UTF-8"); BufferedReader br = new BufferedReader(ur))
+-			{
+-				StringBuilder sb = new StringBuilder();
+-				String line;
+-				
+-				while ((line = br.readLine()) != null)
+-					sb.append(line).append('\n');
+-				
+-				String content = sb.toString().replaceAll("\r\n", "\n");
+-				sb = null;
+-				
+-				_htmCache.put(file.getPath().replace("\\", "/").hashCode(), content);
+-				return content;
+-			}
+-			catch (Exception e)
+-			{
+-				_log.warning("HtmCache: problem with loading file " + e);
+-			}
++			StringBuilder sb = new StringBuilder();
++			String line;
++			
++			while ((line = br.readLine()) != null)
++				sb.append(line).append('\n');
++			
++			String content = sb.toString().replaceAll("\r\n", "\n");
++			sb = null;
++			
++			_htmCache.put(file.getPath().replace("\\", "/").hashCode(), content);
++			return content;
+ 		}
+-		
+-		return null;
++		catch (Exception e)
++		{
++			_log.warning("HtmCache: problem with loading file " + e);
++			return null;
++		}
+ 	}
+ 	
+@@ -119,5 +116,10 @@
+ 	public boolean isLoadable(String path)
+ 	{
+-		return loadFile(new File(path)) != null;
++		final File file = new File(path);
++		
++		if (file.exists() && _htmFilter.accept(file) && !file.isDirectory())
++			return loadFile(file) != null;
++		
++		return false;
+ 	}
+ 	
+@@ -134,5 +136,10 @@
+ 		String content = _htmCache.get(filename.hashCode());
+ 		if (content == null)
+-			content = loadFile(new File(filename));
++		{
++			final File file = new File(filename);
++			
++			if (file.exists() && _htmFilter.accept(file) && !file.isDirectory())
++				content = loadFile(file);
++		}
+ 		
+ 		return content;
+@@ -160,3 +167,13 @@
+ 		protected static final HtmCache _instance = new HtmCache();
+ 	}
++	
++	protected class HtmFilter implements FileFilter
++	{
++		@Override
++		public boolean accept(File file)
++		{
++			// directories, *.htm and *.html files
++			return file.isDirectory() || file.getName().endsWith(".htm") || file.getName().endsWith(".html");
++		}
++	}
+ }
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/cache/CrestCache.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/cache/CrestCache.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/cache/CrestCache.java	(revision 340)
+@@ -20,20 +20,10 @@
+ import java.io.IOException;
+ import java.io.RandomAccessFile;
+-import java.sql.Connection;
+-import java.sql.PreparedStatement;
+-import java.sql.SQLException;
+-import java.util.ArrayList;
+-import java.util.logging.Level;
++import java.util.HashMap;
++import java.util.Map;
+ import java.util.logging.Logger;
+ 
+-import net.sf.l2j.L2DatabaseFactory;
+-import net.sf.l2j.commons.io.filters.BmpFilter;
+-import net.sf.l2j.commons.io.filters.OldPledgeFilter;
+-import net.sf.l2j.gameserver.datatables.ClanTable;
+-import net.sf.l2j.gameserver.idfactory.IdFactory;
+-import net.sf.l2j.gameserver.model.L2Clan;
+-
+ /**
+- * @author Layane, reworked by Java-man
++ * @author Layane, reworked by Java-man, Hasha
+  */
+ public class CrestCache
+@@ -41,158 +31,120 @@
+ 	private static final Logger _log = Logger.getLogger(CrestCache.class.getName());
+ 	
+-	private final static ArrayList<CrestData> cache = new ArrayList<>();
++	private static final String CRESTS_DIR = "./data/crests/";
+ 	
+-	private final static String CRESTS_DIR = "./data/crests/";
+-	
+-	private final static FileFilter bmpFilter = new BmpFilter();
+-	private final static FileFilter oldPledgeFilter = new OldPledgeFilter();
++	private final Map<Integer, byte[]> _crests;
++	private final FileFilter _ddsFilter;
+ 	
+ 	public static enum CrestType
+ 	{
+-		PLEDGE("Crest_"),
+-		PLEDGE_LARGE("LargeCrest_"),
+-		PLEDGE_OLD("Pledge_"),
+-		ALLY("AllyCrest_");
++		PLEDGE("Crest_", 256),
++		PLEDGE_LARGE("LargeCrest_", 2176),
++		ALLY("AllyCrest_", 192);
+ 		
+-		private final String _dirPrefix;
++		final String _prefix;
++		final int _size;
+ 		
+-		CrestType(String dirPrefix)
++		private CrestType(String prefix, int size)
+ 		{
+-			_dirPrefix = dirPrefix;
+-		}
+-		
+-		public String getDirPrefix()
+-		{
+-			return _dirPrefix;
++			_prefix = prefix;
++			_size = size;
+ 		}
+ 	}
+ 	
+-	static
++	public static CrestCache getInstance()
+ 	{
+-		if (!new File(CRESTS_DIR).mkdirs())
+-			convertOldPledgeFiles();
++		return SingletonHolder._instance;
+ 	}
+ 	
+-	public static void load()
++	public CrestCache()
+ 	{
+-		cache.clear();
++		_crests = new HashMap<>();
++		_ddsFilter = new DdsFilter();
+ 		
+-		File[] files = new File(CRESTS_DIR).listFiles(bmpFilter);
+-		if (files == null)
+-			files = new File[0];
++		load();
++	}
++	
++	public final void reload()
++	{
++		_crests.clear();
+ 		
+-		String fileName;
+-		byte[] content;
++		load();
++	}
++	
++	private final void load()
++	{
++		final File directory = new File(CRESTS_DIR);
++		directory.mkdirs();
+ 		
+-		CrestType crestType = null;
+-		int crestId = 0;
+-		
+-		for (File file : files)
++		for (File file : directory.listFiles(_ddsFilter))
+ 		{
+-			fileName = file.getName();
++			byte[] data;
+ 			try (RandomAccessFile f = new RandomAccessFile(file, "r"))
+ 			{
+-				content = new byte[(int) f.length()];
+-				f.readFully(content);
+-				
+-				for (CrestType type : CrestType.values())
+-				{
+-					if (fileName.startsWith(type.getDirPrefix()))
+-					{
+-						crestType = type;
+-						crestId = Integer.valueOf(fileName.substring(type.getDirPrefix().length(), fileName.length() - 4));
+-					}
+-				}
+-				cache.add(new CrestData(crestType, crestId, content));
++				data = new byte[(int) f.length()];
++				f.readFully(data);
+ 			}
+ 			catch (Exception e)
+ 			{
+-				_log.log(Level.WARNING, "Problem with loading crest bmp file: " + file, e);
++				_log.warning("CrestCache: Error loading crest file: " + file.getName());
++				continue;
++			}
++			
++			final String fileName = file.getName();
++			
++			for (CrestType type : CrestType.values())
++			{
++				if (!fileName.startsWith(type._prefix))
++					continue;
++				
++				_crests.put(Integer.valueOf(fileName.substring(type._prefix.length(), fileName.length() - 4)), data);
+ 			}
+ 		}
+ 		
+-		_log.info("Cache[Crest]: " + cache.size() + " files loaded.");
++		_log.info("CrestCache: Loaded " + _crests.size() + " crest files.");
+ 	}
+ 	
+-	public static void convertOldPledgeFiles()
++	public final byte[] getCrest(CrestType type, int id)
+ 	{
+-		int clanId, newId;
+-		L2Clan clan;
++		// get crest data
++		byte[] data = _crests.get(id);
+ 		
+-		final File[] files = new File(CRESTS_DIR).listFiles(oldPledgeFilter);
+-		for (File file : files)
+-		{
+-			clanId = Integer.parseInt(file.getName().substring(7, file.getName().length() - 4));
+-			newId = IdFactory.getInstance().getNextId();
+-			clan = ClanTable.getInstance().getClan(clanId);
+-			
+-			_log.info("Found old crest file \"" + file.getName() + "\" for clanId " + clanId);
+-			
+-			if (clan != null)
+-			{
+-				removeCrest(CrestType.PLEDGE_LARGE, clan.getCrestId());
+-				
+-				file.renameTo(new File(CRESTS_DIR + "Crest_" + newId + ".bmp"));
+-				_log.info("Renamed Clan crest to new format: Crest_" + newId + ".bmp");
+-				
+-				try (Connection con = L2DatabaseFactory.getInstance().getConnection())
+-				{
+-					PreparedStatement statement = con.prepareStatement("UPDATE clan_data SET crest_id = ? WHERE clan_id = ?");
+-					statement.setInt(1, newId);
+-					statement.setInt(2, clan.getClanId());
+-					statement.executeUpdate();
+-					statement.close();
+-				}
+-				catch (SQLException e)
+-				{
+-					_log.log(Level.WARNING, "Could not update the crest id:", e);
+-				}
+-				
+-				clan.setCrestId(newId);
+-			}
+-			else
+-			{
+-				_log.info("Clan Id: " + clanId + " does not exist in table.. deleting.");
+-				file.delete();
+-			}
+-		}
++		// crest data is not required type, return
++		if (data.length != type._size)
++			return null;
++		
++		return data;
+ 	}
+ 	
+-	public static byte[] getCrest(CrestType crestType, int id)
++	public final void removeCrest(CrestType type, int id)
+ 	{
+-		for (CrestData crest : cache)
+-			if (crest.getCrestType() == crestType && crest.getCrestId() == id)
+-				return crest.getHash();
++		// get crest data
++		byte[] data = _crests.get(id);
+ 		
+-		return null;
++		// crest data is not required type, return
++		if (data.length != type._size)
++			return;
++		
++		// remove from cache
++		_crests.remove(id);
++		
++		// delete file
++		final File file = new File(CRESTS_DIR + type._prefix + id + ".dds");
++		if (!file.delete())
++			_log.warning("CrestCache: Error deleting crest file: " + file.getName());
+ 	}
+ 	
+-	public static void removeCrest(CrestType crestType, int id)
++	public final boolean saveCrest(CrestType type, int id, byte[] data)
+ 	{
+-		String crestDirPrefix = crestType.getDirPrefix();
++		// create file
++		File file = new File(CRESTS_DIR + type._prefix + id + ".dds");
+ 		
+-		if (!crestDirPrefix.equals("Pledge_"))
++		try (FileOutputStream out = new FileOutputStream(file))
+ 		{
+-			for (CrestData crestData : cache)
+-				if (crestData.getCrestType() == crestType && crestData.getCrestId() == id)
+-				{
+-					cache.remove(crestData);
+-					break;
+-				}
+-		}
+-		
+-		File crestFile = new File(CRESTS_DIR + crestDirPrefix + id + ".bmp");
+-		if (!crestFile.delete())
+-			_log.log(Level.WARNING, "CrestCache: Failed to delete " + crestDirPrefix + id + ".bmp");
+-	}
+-	
+-	public static boolean saveCrest(CrestType crestType, int newId, byte[] data)
+-	{
+-		File crestFile = new File(CRESTS_DIR + crestType.getDirPrefix() + newId + ".bmp");
+-		try (FileOutputStream out = new FileOutputStream(crestFile))
+-		{
++			// save crest
+ 			out.write(data);
+ 			
+-			cache.add(new CrestData(crestType, newId, data));
++			// put crest to cache
++			_crests.put(id, data);
+ 			
+ 			return true;
+@@ -200,35 +152,21 @@
+ 		catch (IOException e)
+ 		{
+-			_log.log(Level.INFO, "Error saving pledge crest" + crestFile + ":", e);
++			_log.warning("CrestCache: Error saving crest file: " + file.getName());
+ 			return false;
+ 		}
+ 	}
+ 	
+-	private static class CrestData
++	private static class SingletonHolder
+ 	{
+-		private final CrestType _crestType;
+-		private final int _crestId;
+-		private final byte[] _hash;
+-		
+-		CrestData(CrestType crestType, int crestId, byte[] hash)
++		protected static final CrestCache _instance = new CrestCache();
++	}
++	
++	protected class DdsFilter implements FileFilter
++	{
++		@Override
++		public boolean accept(File file)
+ 		{
+-			_crestType = crestType;
+-			_crestId = crestId;
+-			_hash = hash;
+-		}
+-		
+-		public CrestType getCrestType()
+-		{
+-			return _crestType;
+-		}
+-		
+-		public int getCrestId()
+-		{
+-			return _crestId;
+-		}
+-		
+-		public byte[] getHash()
+-		{
+-			return _hash;
++			// client<>server crest transfer is using images in DDS file format (DXT1)
++			return file.getName().endsWith(".dds");
+ 		}
+ 	}
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/datatables/AugmentationData.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/datatables/AugmentationData.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/datatables/AugmentationData.java	(revision 340)
+@@ -117,7 +117,14 @@
+ 		
+ 		// Use size*4: since theres 4 blocks of stat-data with equivalent size
+-		_log.info("AugmentationData: Loaded: " + (_augStats[0].size() * 4) + " augmentation stats.");
++		_log.info("AugmentationData: Loaded " + _augStats.length + " sets of " + (_augStats[0].size() * 4) + " augmentation stats.");
++		
++		int blue = 0, purple = 0, red = 0;
+ 		for (int i = 0; i < 10; i++)
+-			_log.info("AugmentationData: Loaded " + _blueSkills[i].size() + " blue, " + _purpleSkills[i].size() + " purple and " + _redSkills[i].size() + " red skills for LS lvl " + i + ".");
++		{
++			blue += _blueSkills[i].size();
++			purple += _purpleSkills[i].size();
++			red += _redSkills[i].size();
++		}
++		_log.info("AugmentationData: Loaded " + blue + " blue, " + purple + " purple and " + red + " red Life-Stone skills.");
+ 	}
+ 	
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/datatables/AnnouncementTable.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/datatables/AnnouncementTable.java	(revision 340)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/datatables/AnnouncementTable.java	(revision 340)
+@@ -0,0 +1,253 @@
++/*
++ * This program is free software: you can redistribute it and/or modify it under
++ * the terms of the GNU General Public License as published by the Free Software
++ * Foundation, either version 3 of the License, or (at your option) any later
++ * version.
++ *
++ * This program is distributed in the hope that it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
++ * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
++ * details.
++ *
++ * You should have received a copy of the GNU General Public License along with
++ * this program. If not, see <http://www.gnu.org/licenses/>.
++ */
++package net.sf.l2j.gameserver.datatables;
++
++import java.io.File;
++import java.io.FileWriter;
++import java.util.Map;
++import java.util.concurrent.ConcurrentHashMap;
++import java.util.logging.Logger;
++
++import net.sf.l2j.gameserver.cache.HtmCache;
++import net.sf.l2j.gameserver.model.Announcement;
++import net.sf.l2j.gameserver.model.actor.instance.L2PcInstance;
++import net.sf.l2j.gameserver.network.clientpackets.Say2;
++import net.sf.l2j.gameserver.network.serverpackets.CreatureSay;
++import net.sf.l2j.gameserver.network.serverpackets.NpcHtmlMessage;
++import net.sf.l2j.gameserver.util.Broadcast;
++import net.sf.l2j.gameserver.xmlfactory.XMLDocumentFactory;
++
++import org.w3c.dom.Document;
++import org.w3c.dom.Node;
++
++/**
++ * Announcements system.<br>
++ * See header String below for all details.
++ * @author Sikken, xblx && Tryskell
++ */
++public class AnnouncementTable
++{
++	private static final Logger _log = Logger.getLogger(AnnouncementTable.class.getName());
++	
++	private static final String HEADER = "<?xml version=\"1.0\" encoding=\"UTF-8\"?> \n<!-- \n@param String message - the message to be announced \n@param Boolean critical - type of announcement (true = critical,false = normal) \n@param Boolean auto - when the announcement will be displayed (true = auto,false = on player login) \n@param Integer initial_delay - time delay for the first announce (used only if auto=true;value in seconds) \n@param Integer delay - time delay for the announces following the first announce (used only if auto=true;value in seconds) \n@param Integer limit - limit of announces (used only if auto=true, 0 = unlimited) \n--> \n";
++	
++	private final Map<Integer, Announcement> _announcements = new ConcurrentHashMap<>();
++	
++	public static AnnouncementTable getInstance()
++	{
++		return SingletonHolder._instance;
++	}
++	
++	protected AnnouncementTable()
++	{
++		load();
++	}
++	
++	public void reload()
++	{
++		// Clean first tasks from automatic announcements.
++		for (Announcement announce : _announcements.values())
++			announce.stopDaemon();
++		
++		load();
++	}
++	
++	public void load()
++	{
++		try
++		{
++			File f = new File("./data/xml/announcements.xml");
++			Document doc = XMLDocumentFactory.getInstance().loadDocument(f);
++			
++			int id = 0;
++			
++			Node n = doc.getFirstChild();
++			for (Node d = n.getFirstChild(); d != null; d = d.getNextSibling())
++			{
++				if (d.getNodeName().equalsIgnoreCase("announcement"))
++				{
++					final String message = d.getAttributes().getNamedItem("message").getNodeValue();
++					if (message == null || message.isEmpty())
++					{
++						_log.warning("AnnouncementTable: The message is empty. Ignoring it!");
++						continue;
++					}
++					
++					boolean critical = Boolean.valueOf(d.getAttributes().getNamedItem("critical").getNodeValue());
++					boolean auto = Boolean.valueOf(d.getAttributes().getNamedItem("auto").getNodeValue());
++					
++					if (auto)
++					{
++						int initialDelay = Integer.valueOf(d.getAttributes().getNamedItem("initial_delay").getNodeValue());
++						int delay = Integer.valueOf(d.getAttributes().getNamedItem("delay").getNodeValue());
++						
++						int limit = Integer.valueOf(d.getAttributes().getNamedItem("limit").getNodeValue());
++						if (limit < 0)
++							limit = 0;
++						
++						_announcements.put(id, new Announcement(message, critical, auto, initialDelay, delay, limit));
++					}
++					else
++						_announcements.put(id, new Announcement(message, critical));
++					
++					id++;
++				}
++			}
++		}
++		catch (Exception e)
++		{
++			_log.warning("AnnouncementTable: Error loading from file:" + e.getMessage());
++		}
++		_log.info("AnnouncementTable: Loaded " + _announcements.size() + " announcements.");
++	}
++	
++	/**
++	 * Send stored announcements from _announcements Map to a specific player.
++	 * @param activeChar : The player to send infos.
++	 */
++	public void showAnnouncements(L2PcInstance activeChar)
++	{
++		for (Announcement announce : _announcements.values())
++		{
++			if (announce.isAuto())
++				continue;
++			
++			activeChar.sendPacket(new CreatureSay(0, announce.isCritical() ? Say2.CRITICAL_ANNOUNCE : Say2.ANNOUNCEMENT, activeChar.getName(), announce.getMessage()));
++		}
++	}
++	
++	/**
++	 * Use Broadcast class method in order to send announcement, wrapped into a ioobe try/catch.
++	 * @param command : The command to affect.
++	 * @param lengthToTrim : The length to trim, in order to send only the message without the command.
++	 * @param critical : Is the message critical or not.
++	 */
++	public void handleAnnounce(String command, int lengthToTrim, boolean critical)
++	{
++		try
++		{
++			Broadcast.announceToOnlinePlayers(command.substring(lengthToTrim), critical);
++		}
++		catch (StringIndexOutOfBoundsException e)
++		{
++		}
++	}
++	
++	/**
++	 * Send a static HTM with dynamic announcements content took from _announcements Map.
++	 * @param activeChar : The player to send the HTM packet.
++	 */
++	public void listAnnouncements(L2PcInstance activeChar)
++	{
++		String content = HtmCache.getInstance().getHtmForce("data/html/admin/announce_list.htm");
++		
++		NpcHtmlMessage adminReply = new NpcHtmlMessage(5);
++		adminReply.setHtml(content);
++		
++		StringBuilder replyMSG = new StringBuilder("<br>");
++		if (_announcements.isEmpty())
++			replyMSG.append("<tr><td>The XML file doesn't contain any content.</td></tr>");
++		else
++		{
++			for (Map.Entry<Integer, Announcement> entry : _announcements.entrySet())
++			{
++				final int index = entry.getKey();
++				final Announcement announce = entry.getValue();
++				
++				replyMSG.append("<tr><td width=240>#" + index + " - " + announce.getMessage() + "</td><td></td></tr>");
++				replyMSG.append("<tr><td>Critical: " + announce.isCritical() + " | Auto: " + announce.isAuto() + "</td><td><button value=\"Delete\" action=\"bypass -h admin_announce del " + index + "\" width=65 height=19 back=\"L2UI_ch3.smallbutton2_over\" fore=\"L2UI_ch3.smallbutton2\"></td></tr>");
++			}
++		}
++		adminReply.replace("%announces%", replyMSG.toString());
++		activeChar.sendPacket(adminReply);
++	}
++	
++	/**
++	 * Add an announcement, only if the message isn't empty or null.
++	 * @param message : The String to announce.
++	 * @param critical : Is it a critical announcement or not.
++	 * @param auto : Is it using a specific task or not.
++	 * @param initialDelay : Initial delay of the task, used only if auto is setted to True.
++	 * @param delay : Delay of the task, used only if auto is setted to True.
++	 * @param limit : Maximum amount of loops the task will do before ending.
++	 * @return True if the announcement has been successfully added, False otherwise.
++	 */
++	public boolean addAnnouncement(String message, boolean critical, boolean auto, int initialDelay, int delay, int limit)
++	{
++		// Empty or null message.
++		if (message == null || message.isEmpty())
++			return false;
++		
++		// Register announcement.
++		if (auto)
++			_announcements.put(_announcements.size(), new Announcement(message, critical, auto, initialDelay, delay, limit));
++		else
++			_announcements.put(_announcements.size(), new Announcement(message, critical));
++		
++		// Regenerate the XML.
++		regenerateXML();
++		return true;
++	}
++	
++	/**
++	 * End the task linked to an announcement and delete it.
++	 * @param index : the Map index to remove.
++	 */
++	public void delAnnouncement(int index)
++	{
++		// Stop the current task, if any.
++		_announcements.remove(index).stopDaemon();
++		
++		// Regenerate the XML.
++		regenerateXML();
++	}
++	
++	/**
++	 * This method allows to refresh the XML with infos took from _announcements Map.
++	 */
++	private void regenerateXML()
++	{
++		StringBuilder sb = new StringBuilder();
++		
++		sb.append(HEADER);
++		sb.append("<list> \n");
++		for (Announcement announce : _announcements.values())
++		{
++			sb.append("<announcement ");
++			sb.append("message=\"" + announce.getMessage() + "\" ");
++			sb.append("critical=\"" + announce.isCritical() + "\" ");
++			sb.append("auto=\"" + announce.isAuto() + "\" ");
++			sb.append("initial_delay=\"" + announce.getInitialDelay() + "\" ");
++			sb.append("delay=\"" + announce.getDelay() + "\" ");
++			sb.append("limit=\"" + announce.getLimit() + "\" ");
++			sb.append("/> \n");
++		}
++		sb.append("</list>");
++		
++		try (FileWriter fw = new FileWriter(new File("./data/xml/announcements.xml")))
++		{
++			fw.write(sb.toString());
++		}
++		catch (Exception e)
++		{
++			e.printStackTrace();
++		}
++	}
++	
++	private static class SingletonHolder
++	{
++		protected static final AnnouncementTable _instance = new AnnouncementTable();
++	}
++}
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/datatables/SoulCrystalsTable.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/datatables/SoulCrystalsTable.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/datatables/SoulCrystalsTable.java	(revision 340)
+@@ -160,5 +160,5 @@
+ 		}
+ 		
+-		_log.info("SoulCrystalsTable: Loaded " + _soulCrystals.size() + " SC(s) data and " + _npcLevelingInfos.size() + " NPC(s) data.");
++		_log.info("SoulCrystalsTable: Loaded " + _soulCrystals.size() + " SC data and " + _npcLevelingInfos.size() + " NPC data.");
+ 	}
+ 	
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/handler/itemhandlers/ItemSkills.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/handler/itemhandlers/ItemSkills.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/handler/itemhandlers/ItemSkills.java	(revision 340)
+@@ -102,5 +102,5 @@
+ 					return;
+ 				}
+-
++				
+ 				playable.getAI().setIntention(CtrlIntention.IDLE);
+ 				if (!playable.useMagic(itemSkill, forceUse, false))
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/handler/admincommandhandlers/AdminAdmin.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/handler/admincommandhandlers/AdminAdmin.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/handler/admincommandhandlers/AdminAdmin.java	(revision 340)
+@@ -24,4 +24,5 @@
+ import net.sf.l2j.gameserver.cache.HtmCache;
+ import net.sf.l2j.gameserver.datatables.AdminCommandAccessRights;
++import net.sf.l2j.gameserver.datatables.AnnouncementTable;
+ import net.sf.l2j.gameserver.datatables.DoorTable;
+ import net.sf.l2j.gameserver.datatables.GmListTable;
+@@ -194,4 +195,9 @@
+ 					activeChar.sendMessage("Admin commands rights have been reloaded.");
+ 				}
++				else if (type.startsWith("announcement"))
++				{
++					AnnouncementTable.getInstance().reload();
++					activeChar.sendMessage("The content of announcements.xml has been reloaded.");
++				}
+ 				else if (type.startsWith("config"))
+ 				{
+@@ -201,5 +207,5 @@
+ 				else if (type.startsWith("crest"))
+ 				{
+-					CrestCache.load();
++					CrestCache.getInstance().reload();
+ 					activeChar.sendMessage("Crests have been reloaded.");
+ 				}
+@@ -275,6 +281,7 @@
+ 			catch (Exception e)
+ 			{
+-				activeChar.sendMessage("Usage : //reload <acar|config|crest|door|htm|item|multisell>");
+-				activeChar.sendMessage("Usage : //reload <npc|npcwalker|quest|scripts|skill|teleport|zone>");
++				activeChar.sendMessage("Usage : //reload <acar|announcement|config|crest|door>");
++				activeChar.sendMessage("Usage : //reload <htm|item|multisell|npc|npcwalker|quest>");
++				activeChar.sendMessage("Usage : //reload <scripts|skill|teleport|zone>");
+ 			}
+ 		}
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/handler/admincommandhandlers/AdminCache.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/handler/admincommandhandlers/AdminCache.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/handler/admincommandhandlers/AdminCache.java	(revision 340)
+@@ -15,5 +15,4 @@
+ package net.sf.l2j.gameserver.handler.admincommandhandlers;
+ 
+-import net.sf.l2j.gameserver.cache.CrestCache;
+ import net.sf.l2j.gameserver.cache.HtmCache;
+ import net.sf.l2j.gameserver.handler.IAdminCommandHandler;
+@@ -29,5 +28,4 @@
+ 		"admin_reload_cache_path",
+ 		"admin_reload_cache_file",
+-		"admin_fix_cache_crest"
+ 	};
+ 	
+@@ -69,9 +67,4 @@
+ 			}
+ 		}
+-		else if (command.startsWith("admin_fix_cache_crest"))
+-		{
+-			CrestCache.convertOldPledgeFiles();
+-			activeChar.sendMessage("Cache[Crest]: crests have been fixed.");
+-		}
+ 		return true;
+ 	}
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/handler/admincommandhandlers/AdminAnnouncements.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/handler/admincommandhandlers/AdminAnnouncements.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/handler/admincommandhandlers/AdminAnnouncements.java	(revision 340)
+@@ -15,7 +15,5 @@
+ package net.sf.l2j.gameserver.handler.admincommandhandlers;
+ 
+-import java.util.Collection;
+-
+-import net.sf.l2j.gameserver.Announcements;
++import net.sf.l2j.gameserver.datatables.AnnouncementTable;
+ import net.sf.l2j.gameserver.handler.IAdminCommandHandler;
+ import net.sf.l2j.gameserver.model.L2World;
+@@ -23,6 +21,10 @@
+ 
+ /**
+- * This class handles following admin commands: - announce text = announces text to all players - list_announcements = show menu - reload_announcements = reloads announcements from txt file - announce_announcements = announce all stored announcements to all players - add_announcement text = adds
+- * text to startup announcements - del_announcement id = deletes announcement with respective id
++ * This class handles following admin commands:
++ * <ul>
++ * <li>announce list|all|add|add_auto|del : announcement management.</li>
++ * <li>ann : announces to all players (basic usage).</li>
++ * <li>say : critical announces to all players.</li>
++ * </ul>
+  */
+ public class AdminAnnouncements implements IAdminCommandHandler
+@@ -30,11 +32,7 @@
+ 	private static final String[] ADMIN_COMMANDS =
+ 	{
+-		"admin_list_announcements",
+-		"admin_reload_announcements",
+-		"admin_announce_announcements",
+-		"admin_add_announcement",
+-		"admin_del_announcement",
+ 		"admin_announce",
+-		"admin_announce_menu"
++		"admin_ann",
++		"admin_say"
+ 	};
+ 	
+@@ -42,61 +40,74 @@
+ 	public boolean useAdminCommand(String command, L2PcInstance activeChar)
+ 	{
+-		if (command.equals("admin_list_announcements"))
++		if (command.startsWith("admin_announce"))
+ 		{
+-			Announcements.getInstance().listAnnouncements(activeChar);
+-		}
+-		else if (command.equals("admin_reload_announcements"))
+-		{
+-			Announcements.getInstance().loadAnnouncements();
+-			Announcements.getInstance().listAnnouncements(activeChar);
+-		}
+-		else if (command.startsWith("admin_announce_menu"))
+-		{
+-			Announcements.handleAnnounce(command, 20);
+-			Announcements.getInstance().listAnnouncements(activeChar);
+-		}
+-		else if (command.equals("admin_announce_announcements"))
+-		{
+-			Collection<L2PcInstance> pls = L2World.getInstance().getAllPlayers().values();
+-			
+-			for (L2PcInstance player : pls)
+-				Announcements.getInstance().showAnnouncements(player);
+-			
+-			Announcements.getInstance().listAnnouncements(activeChar);
+-		}
+-		else if (command.startsWith("admin_add_announcement"))
+-		{
+-			// FIXME the player can send only 16 chars (if you try to send more it sends null), remove this function or not?
+-			if (!command.equals("admin_add_announcement"))
++			final String[] tokens = command.split(" ", 3);
++			switch (tokens[1])
+ 			{
+-				try
+-				{
+-					String val = command.substring(23);
+-					Announcements.getInstance().addAnnouncement(val);
+-					Announcements.getInstance().listAnnouncements(activeChar);
+-				}
+-				catch (StringIndexOutOfBoundsException e)
+-				{
+-				}// ignore errors
++				case "list":
++					AnnouncementTable.getInstance().listAnnouncements(activeChar);
++					break;
++				
++				case "all":
++					for (L2PcInstance player : L2World.getInstance().getAllPlayers().values())
++						AnnouncementTable.getInstance().showAnnouncements(player);
++					
++					AnnouncementTable.getInstance().listAnnouncements(activeChar);
++					break;
++				
++				case "add":
++					try
++					{
++						final String[] split = tokens[2].split(" ", 2); // boolean string
++						final boolean crit = Boolean.parseBoolean(split[0]);
++						
++						if (!AnnouncementTable.getInstance().addAnnouncement(split[1], crit, false, -1, -1, -1))
++							activeChar.sendMessage("Invalid //announce message content ; can't be null or empty.");
++					}
++					catch (Exception e)
++					{
++					}
++					AnnouncementTable.getInstance().listAnnouncements(activeChar);
++					break;
++				
++				case "add_auto":
++					try
++					{
++						final String[] split = tokens[2].split(" ", 6); // boolean boolean int int int string
++						final boolean crit = Boolean.parseBoolean(split[0]);
++						final boolean auto = Boolean.parseBoolean(split[1]);
++						final int idelay = Integer.parseInt(split[2]);
++						final int delay = Integer.parseInt(split[3]);
++						final int limit = Integer.parseInt(split[4]);
++						final String msg = split[5];
++						
++						if (!AnnouncementTable.getInstance().addAnnouncement(msg, crit, auto, idelay, delay, limit))
++							activeChar.sendMessage("Invalid //announce message content ; can't be null or empty.");
++					}
++					catch (Exception e)
++					{
++					}
++					AnnouncementTable.getInstance().listAnnouncements(activeChar);
++					break;
++				
++				case "del":
++					try
++					{
++						AnnouncementTable.getInstance().delAnnouncement(Integer.parseInt(tokens[2]));
++					}
++					catch (Exception e)
++					{
++					}
++					AnnouncementTable.getInstance().listAnnouncements(activeChar);
++					break;
++				
++				default:
++					activeChar.sendMessage("Possible //announce parameters : <list|all|add|add_auto|del>");
++					return false;
+ 			}
+ 		}
+-		else if (command.startsWith("admin_del_announcement"))
+-		{
+-			try
+-			{
+-				int val = Integer.parseInt(command.substring(23));
+-				Announcements.getInstance().delAnnouncement(val);
+-				Announcements.getInstance().listAnnouncements(activeChar);
+-			}
+-			catch (StringIndexOutOfBoundsException e)
+-			{
+-			}
+-		}
+-		// Command is admin announce
+-		else if (command.startsWith("admin_announce"))
+-		{
+-			// Call method from another class
+-			Announcements.handleAnnounce(command, 15);
+-		}
++		else if (command.startsWith("admin_ann") || command.startsWith("admin_say"))
++			AnnouncementTable.getInstance().handleAnnounce(command, 10, command.startsWith("admin_say"));
++		
+ 		return true;
+ 	}
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/util/Broadcast.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/util/Broadcast.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/util/Broadcast.java	(revision 340)
+@@ -200,3 +200,8 @@
+ 		toAllOnlinePlayers(new CreatureSay(0, Say2.ANNOUNCEMENT, "", text));
+ 	}
++	
++	public static void announceToOnlinePlayers(String text, boolean critical)
++	{
++		toAllOnlinePlayers(new CreatureSay(0, (critical) ? Say2.CRITICAL_ANNOUNCE : Say2.ANNOUNCEMENT, "", text));
++	}
+ }
+Index: /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/GameServer.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/GameServer.java	(revision 339)
++++ /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/GameServer.java	(revision 340)
+@@ -36,4 +36,5 @@
+ import net.sf.l2j.gameserver.datatables.AccessLevels;
+ import net.sf.l2j.gameserver.datatables.AdminCommandAccessRights;
++import net.sf.l2j.gameserver.datatables.AnnouncementTable;
+ import net.sf.l2j.gameserver.datatables.ArmorSetsTable;
+ import net.sf.l2j.gameserver.datatables.AugmentationData;
+@@ -155,6 +156,5 @@
+ 		L2World.getInstance();
+ 		MapRegionTable.getInstance();
+-		Announcements.getInstance();
+-		BookmarkTable.getInstance();
++		AnnouncementTable.getInstance();
+ 		
+ 		Util.printSection("Skills");
+@@ -172,14 +172,24 @@
+ 		SpellbookTable.getInstance();
+ 		SoulCrystalsTable.load();
+-		
+-		Util.printSection("Augments");
+ 		AugmentationData.getInstance();
+-		
+-		Util.printSection("Characters");
++		CursedWeaponsManager.getInstance();
++		
++		Util.printSection("Admins");
+ 		AccessLevels.getInstance();
+ 		AdminCommandAccessRights.getInstance();
++		BookmarkTable.getInstance();
++		GmListTable.getInstance();
++		MovieMakerManager.getInstance();
++		PetitionManager.getInstance();
++		
++		Util.printSection("Characters");
+ 		CharTemplateTable.getInstance();
+ 		CharNameTable.getInstance();
+-		GmListTable.getInstance();
++		HennaTable.getInstance();
++		HelperBuffTable.getInstance();
++		TeleportLocationTable.getInstance();
++		HtmCache.getInstance();
++		PartyMatchWaitingList.getInstance();
++		PartyMatchRoomList.getInstance();
+ 		RaidBossPointsManager.getInstance();
+ 		
+@@ -190,16 +200,6 @@
+ 			_log.config("Community server is disabled.");
+ 		
+-		Util.printSection("Cache");
+-		HtmCache.getInstance();
+-		CrestCache.load();
+-		TeleportLocationTable.getInstance();
+-		PartyMatchWaitingList.getInstance();
+-		PartyMatchRoomList.getInstance();
+-		PetitionManager.getInstance();
+-		HennaTable.getInstance();
+-		HelperBuffTable.getInstance();
+-		CursedWeaponsManager.getInstance();
+-		
+ 		Util.printSection("Clans");
++		CrestCache.getInstance();
+ 		ClanTable.getInstance();
+ 		AuctionManager.getInstance();
+@@ -308,6 +308,4 @@
+ 		_log.config("IdFactory: Free ObjectIDs remaining: " + IdFactory.getInstance().size());
+ 		
+-		MovieMakerManager.getInstance();
+-		
+ 		if (Config.DEADLOCK_DETECTOR)
+ 		{
+Index: unk/aCis_gameserver/java/net/sf/l2j/gameserver/Announcements.java
+===================================================================
+--- /trunk/aCis_gameserver/java/net/sf/l2j/gameserver/Announcements.java	(revision 339)
++++ 	(revision )
+@@ -1,164 +1,0 @@
+-/*
+- * This program is free software: you can redistribute it and/or modify it under
+- * the terms of the GNU General Public License as published by the Free Software
+- * Foundation, either version 3 of the License, or (at your option) any later
+- * version.
+- * 
+- * This program is distributed in the hope that it will be useful, but WITHOUT
+- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+- * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+- * details.
+- * 
+- * You should have received a copy of the GNU General Public License along with
+- * this program. If not, see <http://www.gnu.org/licenses/>.
+- */
+-package net.sf.l2j.gameserver;
+-
+-import java.io.File;
+-import java.io.FileReader;
+-import java.io.FileWriter;
+-import java.io.IOException;
+-import java.io.LineNumberReader;
+-import java.util.ArrayList;
+-import java.util.List;
+-import java.util.StringTokenizer;
+-import java.util.logging.Level;
+-import java.util.logging.Logger;
+-
+-import net.sf.l2j.gameserver.model.actor.instance.L2PcInstance;
+-import net.sf.l2j.gameserver.network.clientpackets.Say2;
+-import net.sf.l2j.gameserver.network.serverpackets.CreatureSay;
+-import net.sf.l2j.gameserver.network.serverpackets.NpcHtmlMessage;
+-import net.sf.l2j.gameserver.network.serverpackets.SystemMessage;
+-import net.sf.l2j.gameserver.util.Broadcast;
+-
+-public class Announcements
+-{
+-	private static Logger _log = Logger.getLogger(Announcements.class.getName());
+-	
+-	private static Announcements _instance;
+-	private final List<String> _announcements = new ArrayList<>();
+-	
+-	private Announcements()
+-	{
+-		loadAnnouncements();
+-	}
+-	
+-	public static Announcements getInstance()
+-	{
+-		if (_instance == null)
+-			_instance = new Announcements();
+-		
+-		return _instance;
+-	}
+-	
+-	public void loadAnnouncements()
+-	{
+-		_announcements.clear();
+-		File file = new File("./data/announcements.txt");
+-		if (file.exists())
+-			readFromDisk(file);
+-		else
+-			_log.config("The announcements file (normally located to 'data/announcements.txt') doesn't exist.");
+-	}
+-	
+-	public void showAnnouncements(L2PcInstance activeChar)
+-	{
+-		for (int i = 0; i < _announcements.size(); i++)
+-		{
+-			CreatureSay cs = new CreatureSay(0, Say2.ANNOUNCEMENT, activeChar.getName(), _announcements.get(i));
+-			activeChar.sendPacket(cs);
+-		}
+-	}
+-	
+-	public void listAnnouncements(L2PcInstance activeChar)
+-	{
+-		NpcHtmlMessage adminReply = new NpcHtmlMessage(0);
+-		adminReply.setFile("data/html/admin/announce.htm");
+-		StringBuilder replyMSG = new StringBuilder("<br>");
+-		for (int i = 0; i < _announcements.size(); i++)
+-		{
+-			replyMSG.append("<table width=260><tr><td width=220>" + _announcements.get(i) + "</td><td width=40>");
+-			replyMSG.append("<button value=\"Delete\" action=\"bypass -h admin_del_announcement " + i + "\" width=60 height=15 back=\"sek.cbui94\" fore=\"sek.cbui92\"></td></tr></table>");
+-		}
+-		adminReply.replace("%announces%", replyMSG.toString());
+-		activeChar.sendPacket(adminReply);
+-	}
+-	
+-	public void addAnnouncement(String text)
+-	{
+-		_announcements.add(text);
+-		saveToDisk();
+-	}
+-	
+-	public void delAnnouncement(int line)
+-	{
+-		_announcements.remove(line);
+-		saveToDisk();
+-	}
+-	
+-	private void readFromDisk(File file)
+-	{
+-		try (LineNumberReader lnr = new LineNumberReader(new FileReader(file)))
+-		{
+-			int i = 0;
+-			String line = null;
+-			while ((line = lnr.readLine()) != null)
+-			{
+-				StringTokenizer st = new StringTokenizer(line, "\n\r");
+-				if (st.hasMoreTokens())
+-				{
+-					String announcement = st.nextToken();
+-					_announcements.add(announcement);
+-					
+-					i++;
+-				}
+-			}
+-			_log.config("Announcements: Loaded " + i + " Announcements.");
+-		}
+-		catch (IOException e1)
+-		{
+-			_log.log(Level.SEVERE, "Error reading announcements", e1);
+-		}
+-	}
+-	
+-	private void saveToDisk()
+-	{
+-		final File file = new File("data/announcements.txt");
+-		try (FileWriter save = new FileWriter(file))
+-		{
+-			for (int i = 0; i < _announcements.size(); i++)
+-			{
+-				save.write(_announcements.get(i));
+-				save.write("\r\n");
+-			}
+-		}
+-		catch (IOException e)
+-		{
+-			_log.warning("saving the announcements file has failed: " + e);
+-		}
+-	}
+-	
+-	public static void announceToAll(String text)
+-	{
+-		Broadcast.announceToOnlinePlayers(text);
+-	}
+-	
+-	public static void announceToAll(SystemMessage sm)
+-	{
+-		Broadcast.toAllOnlinePlayers(sm);
+-	}
+-	
+-	// Method for handling announcements from admin
+-	public static void handleAnnounce(String command, int lengthToTrim)
+-	{
+-		try
+-		{
+-			// Announce string to everyone on server
+-			announceToAll(command.substring(lengthToTrim));
+-		}
+-		catch (StringIndexOutOfBoundsException e)
+-		{
+-		}
+-	}
+-}
+Index: /trunk/aCis_datapack/data/xml/announcements.xml
+===================================================================
+--- /trunk/aCis_datapack/data/xml/announcements.xml	(revision 340)
++++ /trunk/aCis_datapack/data/xml/announcements.xml	(revision 340)
+@@ -0,0 +1,11 @@
++<?xml version="1.0" encoding="UTF-8"?> 
++<!-- 
++@param String message - the message to be announced 
++@param Boolean critical - type of announcement (true = critical,false = normal) 
++@param Boolean auto - when the announcement will be displayed (true = auto,false = on player login) 
++@param Integer initial_delay - time delay for the first announce (used only if auto=true;value in seconds) 
++@param Integer delay - time delay for the announces following the first announce (used only if auto=true;value in seconds) 
++@param Integer limit - limit of announces (used only if auto=true, 0 = unlimited) 
++--> 
++<list>
++</list>
+Index: /trunk/aCis_datapack/data/xml/admin_commands_rights.xml
+===================================================================
+--- /trunk/aCis_datapack/data/xml/admin_commands_rights.xml	(revision 339)
++++ /trunk/aCis_datapack/data/xml/admin_commands_rights.xml	(revision 340)
+@@ -16,11 +16,7 @@
+ 
+ 	<!-- ANNOUNCEMENTS -->
+-	<aCar name="admin_list_announcements" accessLevel="1" />
+-	<aCar name="admin_reload_announcements" accessLevel="1" />
+-	<aCar name="admin_announce_announcements" accessLevel="1" />
+-	<aCar name="admin_add_announcement" accessLevel="1" />
+-	<aCar name="admin_del_announcement" accessLevel="1" />
+ 	<aCar name="admin_announce" accessLevel="1" />
+-	<aCar name="admin_announce_menu" accessLevel="1" />
++	<aCar name="admin_ann" accessLevel="1" />
++	<aCar name="admin_say" accessLevel="1" />
+ 
+ 	<!-- BAN -->
+@@ -51,5 +47,4 @@
+ 	<aCar name="admin_reload_cache_path" accessLevel="1" />
+ 	<aCar name="admin_reload_cache_file" accessLevel="1" />
+-	<aCar name="admin_fix_cache_crest" accessLevel="1" />
+ 
+ 	<!-- CAMERA -->
+Index: /trunk/aCis_datapack/data/html/admin/server_menu.htm
+===================================================================
+--- /trunk/aCis_datapack/data/html/admin/server_menu.htm	(revision 339)
++++ /trunk/aCis_datapack/data/html/admin/server_menu.htm	(revision 340)
+@@ -19,5 +19,5 @@
+ 	<table width=240>
+ 		<tr>
+-			<td><combobox width=120 height=21 var="cb" list=acar;config;crest;cw;door;htm;item;multisell;npc;npcwalker;scripts;skill;teleport;zone;></td>
++			<td><combobox width=120 height=21 var="cb" list=acar;announcement;config;crest;cw;door;htm;item;multisell;npc;npcwalker;scripts;skill;teleport;zone;></td>
+ 			<td><button value="Reload" action="bypass -h admin_reload $cb" width=75 height=21 back="L2UI_ch3.Btn1_normalOn" fore="L2UI_ch3.Btn1_normal"></td>
+ 		</tr>
+@@ -46,5 +46,5 @@
+ 		<tr>
+ 			<td><button value="Maintenance" action="bypass -h admin_server" width=75 height=21 back="L2UI_ch3.Btn1_normalOn" fore="L2UI_ch3.Btn1_normal"></td>
+-			<td><button value="Announce" action="bypass -h admin_announce_menu $menu_command" width=75 height=21 back="L2UI_ch3.Btn1_normalOn" fore="L2UI_ch3.Btn1_normal"></td>
++			<td><button value="Announce" action="bypass -h admin_help announce.htm" width=75 height=21 back="L2UI_ch3.Btn1_normalOn" fore="L2UI_ch3.Btn1_normal"></td>
+ 		</tr>
+ 	</table><br>
+Index: /trunk/aCis_datapack/data/html/admin/announce_list.htm
+===================================================================
+--- /trunk/aCis_datapack/data/html/admin/announce_list.htm	(revision 340)
++++ /trunk/aCis_datapack/data/html/admin/announce_list.htm	(revision 340)
+@@ -0,0 +1,7 @@
++<html><body>
++	<font color="LEVEL">Current Announcements.xml content :</font>
++	<table width=260>
++		%announces%
++	</table><br>
++	<button value="Return" action="bypass -h admin_help announce.htm" width=75 height=21 back="L2UI_ch3.Btn1_normalOn" fore="L2UI_ch3.Btn1_normal">
++</body></html>
+Index: /trunk/aCis_datapack/data/html/admin/announce.htm
+===================================================================
+--- /trunk/aCis_datapack/data/html/admin/announce.htm	(revision 339)
++++ /trunk/aCis_datapack/data/html/admin/announce.htm	(revision 340)
+@@ -1,23 +1,48 @@
+ <html>
+ 	<body>
+-		<table width=260>
++		<table width=270>
+ 			<tr>
+-			<td width=40><button value="Main" action="bypass -h admin_admin" width=40 height=15 back="sek.cbui94" fore="sek.cbui92"></td>
+-			<td width=180><center>Announcements Menu</center></td>
+-			<td width=40><button value="Back" action="bypass -h admin_admin4" width=40 height=15 back="sek.cbui94" fore="sek.cbui92"></td></tr>
+-		</table>
+-		<br><br>
+-		<center>New announcement:
+-		<multiedit var="new_announcement" width=240 height=30><br>
+-		<table>
++				<td width=45><button value="Main" action="bypass -h admin_admin" width=45 height=15 back="sek.cbui94" fore="sek.cbui92"></td>
++				<td width=180><center>Announcements Menu</center></td>
++				<td width=45><button value="Back" action="bypass -h admin_admin4" width=45 height=15 back="sek.cbui94" fore="sek.cbui92"></td></tr>
++		</table><br><br>
++		<font color="LEVEL">Write the message of the announcement :</font>
++		<edit var="msg" width=260 height=12><br>
++		<font color="LEVEL">Setup the announcement as critical or not.</font>
++		<table width=270>
+ 			<tr>
+-				<td><button value="Announce" action="bypass -h admin_announce_menu $new_announcement" width=70 height=15 back="sek.cbui94" fore="sek.cbui92"></td>
+-				<td><button value="Add to .txt" action="bypass -h admin_add_announcement $new_announcement" width=70 height=15 back="sek.cbui94" fore="sek.cbui92"></td>
+-				<td><button value="Reload .txt" action="bypass -h admin_announce_announcements" width=70 height=15 back="sek.cbui94" fore="sek.cbui92"></td> 
++				<td>Critical:</td>
++				<td><combobox width=70 height=17 var=crit list=False;True;></td>
++			</tr>
++		</table><br>
++		<button value="Add to .xml" action="bypass -h admin_announce add $crit $msg" width=75 height=21 back="L2UI_ch3.Btn1_normalOn" fore="L2UI_ch3.Btn1_normal">
++		<img src="l2ui.SquareWhite" width=275 height=1><br>
++		<font color="LEVEL">Create an automatized task.</font><br>
++		<table width=270>
++			<tr>
++				<td></td>
++				<td></td>
++				<td>Init. delay:</td>
++				<td><edit var="idelay" width=45 height=12 type=number></td>
++			</tr><tr>
++				<td>Auto:</td>
++				<td><combobox width=70 height=17 var=auto list=False;True;></td>
++				<td>Delay:</td>
++				<td><edit var="delay" width=45 height=12 type=number></td>
++			</tr><tr>
++				<td></td>
++				<td></td>
++				<td>Limit:</td>
++				<td><edit var="limit" width=45 height=12 type=number></td>
+ 			</tr>
+ 		</table>
+-		<br><img src="L2UI_CH3.herotower_deco" align="center" width="256" height="32"><br></center>
+-		<font color="LEVEL">Current Annoucements.txt content :</font>
+-		%announces%
++		<button value="Add to .xml" action="bypass -h admin_announce add_auto $crit $auto $idelay $delay $limit $msg" width=75 height=21 back="L2UI_ch3.Btn1_normalOn" fore="L2UI_ch3.Btn1_normal">
++		<img src="l2ui.SquareWhite" width=275 height=1><br>
++		<center><table>
++			<tr>
++				<td><button value="Show .xml content" action="bypass -h admin_announce list" width=95 height=21 back="bigbutton_over" fore="bigbutton"></td>
++				<td><button value="Announce .xml" action="bypass -h admin_announce all" width=95 height=21 back="bigbutton_over" fore="bigbutton"></td>
++			</tr>
++		</table></center>
+ 	</body>
+ </html>
